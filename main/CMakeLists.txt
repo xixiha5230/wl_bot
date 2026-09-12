@@ -1,0 +1,30 @@
+idf_component_register(
+    SRCS
+        "app_main.c"
+        "board.c"
+        "wifi_ap.c"
+        "http_server.c"
+        "robot_state.c"
+        "sensors.c"
+        "servo_sts.c"
+        "motor_foc.cpp"
+        "robot_control.cpp"
+        "basic_web.cpp"
+        "ws_server.c"
+        "console.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        console
+        driver
+        esp_adc
+        esp_driver_gpio
+        esp_driver_i2c
+        esp_driver_uart
+        esp_event
+        esp_netif
+        esp_timer
+        esp_http_server
+        esp_wifi
+        nvs_flash
+        espressif__esp_simplefoc
+)

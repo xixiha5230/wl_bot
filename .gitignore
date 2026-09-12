@@ -1,0 +1,28 @@
+# ESP-IDF build output
+build/
+sdkconfig
+sdkconfig.old
+compile_commands.json
+
+# Managed components are restored by idf.py from dependencies.lock
+managed_components/
+
+# ESP-IDF Installation Manager config (machine specific, absolute paths)
+eim_config.toml
+
+# Editor / tooling
+.cache/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Stray build artifacts
+*.bin
+*.elf
+*.map
+*.lst
