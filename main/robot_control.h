@@ -86,6 +86,7 @@ float robot_control_getup_torque(void);
 float robot_control_getup_release(void);
 int robot_control_getup_sign(void);
 int robot_control_getup_state(void);
+int robot_control_fault_reason(void);
 /* One-shot level calibration: disables roll correction so both legs sit at
  * their symmetric nominal pose (the mechanical horizontal reference), averages
  * the IMU roll, stores it as the new bias in NVS, then restores the loop.

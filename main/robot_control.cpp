@@ -513,6 +513,11 @@ int robot_control_getup_state(void)
     return getup_state_pub;
 }
 
+int robot_control_fault_reason(void)
+{
+    return (int)fault_reason;
+}
+
 int robot_control_airborne(void)
 {
     return airborne;

@@ -64,7 +64,7 @@ static esp_err_t status_handler(httpd_req_t *request)
              "\"zero\":%.2f,\"yaw_mode\":%d,\"roll_mode\":%d,\"rb\":%.2f,\"faultdeg\":%.1f,"
              "\"amag\":%.2f,\"air\":%d,\"airth\":%.2f,\"airscale\":%.2f,"
              "\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,"
-             "\"mt\":%d,\"mmode\":%d,\"malign\":%d,\"gstate\":%d,"
+             "\"mt\":%d,\"mmode\":%d,\"malign\":%d,\"gstate\":%d,\"freason\":%d,"
              "\"angle_pp\":%.2f,\"ta\":%.2f,\"tg\":%.2f,\"td\":%.2f,\"ts\":%.2f,"
              "\"leg_add\":%.1f,\"yaw\":%.1f,\"yaw_out\":%.2f,\"roll\":%.2f,"
              "\"vl\":%.2f,\"vr\":%.2f,\"gz\":%.2f,\"uptime\":%d,"
@@ -82,6 +82,7 @@ static esp_err_t status_handler(httpd_req_t *request)
              ax, ay, az,
              robot_control_manual_ticks(), (int)motor_foc_get_mode(),
              motor_foc_is_aligned() ? 1 : 0, robot_control_getup_state(),
+             robot_control_fault_reason(),
              robot_control_angle_pp(), ta, tg, td, ts,
              robot_control_leg_add(), robot_control_yaw_total(),
              robot_control_yaw_output(), robot_control_roll_angle(),
