@@ -58,6 +58,9 @@ int robot_control_get_roll_mode(void);
 /* IMU roll mounting bias in degrees (raw angle_x at visually level). */
 void robot_control_set_roll_bias(float bias);
 float robot_control_get_roll_bias(void);
+/* Pitch threshold (deg) that latches an attitude fault. */
+void robot_control_set_fault_deg(float degrees);
+float robot_control_get_fault_deg(void);
 /* One-shot level calibration: disables roll correction so both legs sit at
  * their symmetric nominal pose (the mechanical horizontal reference), averages
  * the IMU roll, stores it as the new bias in NVS, then restores the loop.

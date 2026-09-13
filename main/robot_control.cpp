@@ -132,6 +132,10 @@ static int roll_mode = 1;  /* roll correction sign, same convention */
 /* IMU mounting bias: raw angle_x reading when the chassis is visually level.
  * Exposed as `rb` for live calibration (falls can shift the sensor board). */
 static float roll_bias = 2.0f;
+/* Pitch threshold that latches an attitude fault and cuts the motors. Raised
+ * from 25 to 35 deg so a transient while driving over an obstacle (a wheel
+ * dropping off a plank) does not abort the run; tunable as `faultdeg`. */
+static float attitude_fault_deg = 35.0f;
 static bool arm_request;   /* reset distance zero/PIDs when go turns on */
 
 /* Runtime-tunable jump profile (defaults mirror LEG_JUMP_* in robot_config.h).
@@ -370,6 +374,18 @@ void robot_control_set_roll_bias(float bias)
 float robot_control_get_roll_bias(void)
 {
     return roll_bias;
+}
+
+void robot_control_set_fault_deg(float degrees)
+{
+    if (degrees >= 15.0f && degrees <= 80.0f) {
+        attitude_fault_deg = degrees;
+    }
+}
+
+float robot_control_get_fault_deg(void)
+{
+    return attitude_fault_deg;
 }
 
 /* NVS persistence so a level calibration survives reboots. */
@@ -749,11 +765,9 @@ static void apply_motor_targets(const robot_command_t *cmd)
 /* Fault handling                                                            */
 /* ------------------------------------------------------------------------- */
 
-#define ATTITUDE_FAULT_DEG    25.0f
 #define ATTITUDE_RECOVER_DEG  10.0f
 #define RECOVER_HOLD_TICKS    200
 #define BATTERY_CHECK_PERIOD  50
-
 static float battery_voltage_throttled(void)
 {
     static int ticks;
@@ -885,7 +899,7 @@ static void control_task(void *arg)
                 yaw_loop(&imu, &cmd);
                 leg_loop(&imu, &cmd);
 
-                if (fabsf(LQR_angle) > ATTITUDE_FAULT_DEG) {
+                if (fabsf(LQR_angle) > attitude_fault_deg) {
                     enter_fault(FAULT_ATTITUDE, cmd.go);
                 } else if (cmd.go && battery_is_low()) {
                     enter_fault(FAULT_BATTERY, cmd.go);
