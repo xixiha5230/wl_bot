@@ -175,10 +175,11 @@ static volatile bool wheel_seq_arm;   /* hand over to balance when near upright 
 static volatile int getup_request;
 static int getup_state;             /* 0 idle, 1 driving to upright */
 static volatile int getup_state_pub;
-static float getup_torque = 18.0f;
+static float getup_torque = 12.0f;   /* rock wheel magnitude */
 static float getup_release_deg = 20.0f;
 static int getup_sign = 1;
 static int getup_ticks;
+static int getup_low_height = 35;    /* legs lowered before the rock */
 static int getup_final_height = LEG_HEIGHT_DEFAULT;
 /* Global leg travel limits (servo counts), enforced on every leg command path
  * (height tracking, roll correction and jumps). Runtime-adjustable so the true
@@ -1234,30 +1235,33 @@ static void control_task(void *arg)
                 LQR_angle = imu.angle_y;
                 if (getup_request && fault_reason == FAULT_ATTITUDE) {
                     getup_request = 0;
-                    getup_state = 1;
+                    getup_state = 1;   /* prepare: lower the legs */
                     getup_ticks = 0;
-                    motor_foc_enable_torque();
+                    robot_control_set_height(getup_low_height);
+                    ESP_LOGI("robot_control", "get-up: lowering legs to h=%d",
+                             getup_low_height);
                 }
                 if (getup_state == 1) {
-                    /* Drive the wheels toward the side that lifts the chassis
-                     * back over the axle; release near upright. */
-                    const float dir = (LQR_angle > 0.0f) ? 1.0f : -1.0f;
-                    const float t = (float)getup_sign * dir * getup_torque;
-                    motor_foc_set_target(MOTOR_LEFT, t);
-                    motor_foc_set_target(MOTOR_RIGHT, t);
                     leg_loop(&imu, &cmd);
                     int ticks = getup_ticks + 1;
                     getup_ticks = ticks;
-                    if (fabsf(LQR_angle) < getup_release_deg || ticks > 3000) {
+                    if (ticks >= 700) {   /* let the legs reach the low pose */
+                        float tg[2];
+                        int du[2];
+                        const float amp = getup_torque;
+                        if (LQR_angle < 0.0f) {   /* fell backwards */
+                            tg[0] = -amp;
+                            tg[1] = amp;
+                        } else {                  /* fell forwards */
+                            tg[0] = amp;
+                            tg[1] = -amp;
+                        }
+                        du[0] = 120;
+                        du[1] = 200;
+                        robot_control_wheel_sequence(tg, du, 2);
+                        robot_control_wheel_sequence_arm(true);
                         getup_state = 0;
-                        getup_ticks = 0;
-                        reset_pids();
-                        arm_request = true;
-                        go_auto_latch = false;
-                        fault_reason = FAULT_NONE;
-                        robot_control_set_go(true);
-                        robot_state_set(ROBOT_STATE_RUNNING);
-                        ESP_LOGI("robot_control", "get-up released at %.1f deg",
+                        ESP_LOGI("robot_control", "get-up: rocking at %.1f deg",
                                  LQR_angle);
                     }
                 } else {
