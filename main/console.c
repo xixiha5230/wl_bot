@@ -3,6 +3,7 @@
 #include "esp_console.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "board.h"
 #include "motor_foc.h"
 #include "robot_config.h"
@@ -10,6 +11,9 @@
 #include "robot_state.h"
 #include "sensors.h"
 #include "servo_sts.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -322,6 +326,18 @@ static int cmd_dir(int argc, char **argv)
     return 0;
 }
 
+static int cmd_yaw(int argc, char **argv)
+{
+    if (argc < 2) {
+        printf("usage: yaw <1|-1|0> (normal / inverted / off)\n");
+        return 1;
+    }
+    int mode = atoi(argv[1]);
+    robot_control_set_yaw_mode(mode);
+    printf("yaw mode %d\n", mode > 0 ? 1 : (mode < 0 ? -1 : 0));
+    return 0;
+}
+
 static int cmd_rc(int argc, char **argv)
 {
     (void)argc;
@@ -333,6 +349,15 @@ static int cmd_rc(int argc, char **argv)
            robot_control_lqr_angle(), robot_control_lqr_u(),
            robot_control_faulted() ? 1 : 0,
            robot_state_name(robot_state_get()));
+    printf("yaw_out=%.2f yaw_total=%.2f yaw_mode=%d\n",
+           robot_control_yaw_output(), robot_control_yaw_total(),
+           robot_control_get_yaw_mode());
+    float angle_c, gyro_c, dist_c, speed_c;
+    robot_control_get_terms(&angle_c, &gyro_c, &dist_c, &speed_c);
+    printf("terms angle=%.2f gyro=%.2f dist=%.2f speed=%.2f zero=%.2f\n",
+           angle_c, gyro_c, dist_c, speed_c, robot_control_get_balance_zero());
+    printf("leg_add=%.1f roll=%.2f\n",
+           robot_control_leg_add(), robot_control_roll_angle());
     return 0;
 }
 
@@ -353,6 +378,138 @@ static int cmd_enc(int argc, char **argv)
     printf("R raw=%u angle=%.1f cont=%.1f vel=%.1f\n",
            right.raw_angle, right.angle_degrees,
            right.continuous_angle_degrees, right.velocity_degrees_per_second);
+    return 0;
+}
+
+static int cmd_imu(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    mpu6050_sample_t imu = {0};
+    esp_err_t status = sensors_read_imu(&imu);
+    if (status != ESP_OK) {
+        printf("imu read -> %s\n", esp_err_to_name(status));
+        return 1;
+    }
+    printf("acc  x=%+.3fg y=%+.3fg z=%+.3fg\n", imu.accel_x_g, imu.accel_y_g, imu.accel_z_g);
+    printf("gyro x=%+.1f y=%+.1f z=%+.1f dps\n", imu.gyro_x_dps, imu.gyro_y_dps, imu.gyro_z_dps);
+    printf("angle x=%+.2f y=%+.2f z=%+.2f deg\n", imu.angle_x, imu.angle_y, imu.angle_z);
+    return 0;
+}
+
+static int cmd_rate(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    uint32_t control0 = robot_control_loop_count();
+    uint32_t foc0 = motor_foc_loop_count();
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    printf("control=%lu Hz  foc=%lu Hz\n",
+           (unsigned long)(robot_control_loop_count() - control0),
+           (unsigned long)(motor_foc_loop_count() - foc0));
+    return 0;
+}
+
+static int cmd_pid(int argc, char **argv)
+{
+    if (argc == 1) {
+        for (int idx = 0; idx < robot_control_pid_count(); ++idx) {
+            float p, i, d, limit;
+            robot_control_get_pid(idx, &p, &i, &d, &limit);
+            printf("%-11s P=%.5g I=%.5g D=%.5g limit=%.5g\n",
+                   robot_control_pid_name(idx), p, i, d, limit);
+        }
+        return 0;
+    }
+    if (argc < 4) {
+        printf("usage: pid <name> <P> <I> [D] [limit]\n");
+        return 1;
+    }
+    int which = -1;
+    for (int idx = 0; idx < robot_control_pid_count(); ++idx) {
+        if (strcmp(argv[1], robot_control_pid_name(idx)) == 0) {
+            which = idx;
+            break;
+        }
+    }
+    if (which < 0) {
+        printf("unknown pid '%s'\n", argv[1]);
+        return 1;
+    }
+    float p = strtof(argv[2], NULL);
+    float ki = strtof(argv[3], NULL);
+    float kd = argc >= 5 ? strtof(argv[4], NULL) : -1.0f;
+    float limit = argc >= 6 ? strtof(argv[5], NULL) : -1.0f;
+    robot_control_set_pid(which, p, ki, kd, limit);
+    printf("pid %s <- P=%g I=%g\n", argv[1], p, ki);
+    return 0;
+}
+
+static const char *const lpf_names[] = {"joyy", "zeropoint", "roll"};
+
+static int cmd_lpf(int argc, char **argv)
+{
+    if (argc < 3) {
+        for (int idx = 0; idx < 3; ++idx) {
+            float tf;
+            robot_control_get_lpf(idx, &tf);
+            printf("%-11s Tf=%.5g\n", lpf_names[idx], tf);
+        }
+        return 0;
+    }
+    int which = -1;
+    for (int idx = 0; idx < 3; ++idx) {
+        if (strcmp(argv[1], lpf_names[idx]) == 0) {
+            which = idx;
+            break;
+        }
+    }
+    if (which < 0) {
+        printf("unknown lpf '%s'\n", argv[1]);
+        return 1;
+    }
+    float tf = strtof(argv[2], NULL);
+    robot_control_set_lpf(which, tf);
+    printf("lpf %s <- Tf=%g\n", argv[1], tf);
+    return 0;
+}
+
+static int cmd_zero(int argc, char **argv)
+{
+    if (argc < 2) {
+        printf("angle_zeropoint=%.2f\n", robot_control_get_angle_zeropoint());
+        return 0;
+    }
+    robot_control_set_angle_zeropoint(strtof(argv[1], NULL));
+    printf("angle_zeropoint=%.2f\n", robot_control_get_angle_zeropoint());
+    return 0;
+}
+
+static int cmd_jit(int argc, char **argv)
+{
+    int seconds = argc >= 2 ? atoi(argv[1]) : 3;
+    if (seconds < 1) {
+        seconds = 1;
+    }
+    float a_min = 1e9f, a_max = -1e9f;
+    float r_min = 1e9f, r_max = -1e9f;
+    float l_min = 1e9f, l_max = -1e9f;
+    int64_t end = esp_timer_get_time() + (int64_t)seconds * 1000000;
+    while (esp_timer_get_time() < end) {
+        float a = robot_control_lqr_angle();
+        float r = robot_control_roll_angle();
+        float l = robot_control_leg_add();
+        if (a < a_min) a_min = a;
+        if (a > a_max) a_max = a;
+        if (r < r_min) r_min = r;
+        if (r > r_max) r_max = r;
+        if (l < l_min) l_min = l;
+        if (l > l_max) l_max = l;
+    }
+    printf("jit %ds lqr_angle %.2f..%.2f pp=%.2f | roll %.2f..%.2f pp=%.2f | leg_add %.1f..%.1f pp=%.1f\n",
+           seconds, a_min, a_max, a_max - a_min,
+           r_min, r_max, r_max - r_min,
+           l_min, l_max, l_max - l_min);
     return 0;
 }
 
@@ -384,11 +541,18 @@ static esp_err_t register_commands(void)
         {.command = "m_pp", .help = "m_pp <1|2> <pole_pairs>", .func = cmd_m_pp},
         {.command = "m_align1", .help = "m_align1 <1|2> [align_volts]: align one motor", .func = cmd_m_align1},
         {.command = "go", .help = "go <0|1>: enable balance output", .func = cmd_go},
+        {.command = "yaw", .help = "yaw <0|1>: enable yaw correction", .func = cmd_yaw},
         {.command = "height", .help = "height <32..80>: leg height", .func = cmd_height},
         {.command = "joy", .help = "joy <x> <y>: virtual joystick", .func = cmd_joy},
         {.command = "dir", .help = "dir <0..5>: motion direction (incl. jump)", .func = cmd_dir},
         {.command = "rc", .help = "print control state", .func = cmd_rc},
+        {.command = "pid", .help = "pid [name P I [D] [limit]]: show/set gains", .func = cmd_pid},
+        {.command = "lpf", .help = "lpf [name Tf]: show/set low-pass filters", .func = cmd_lpf},
+        {.command = "zero", .help = "zero [deg]: show/set balance zero point", .func = cmd_zero},
+        {.command = "jit", .help = "jit [sec]: measure high-rate jitter", .func = cmd_jit},
         {.command = "enc", .help = "read both AS5600 encoders", .func = cmd_enc},
+        {.command = "imu", .help = "read accel/gyro/angle", .func = cmd_imu},
+        {.command = "rate", .help = "measure control/FOC loop rates", .func = cmd_rate},
         {.command = "bat", .help = "read battery voltage", .func = cmd_bat},
         {.command = "stop", .help = "disable all servo torque", .func = cmd_stop},
     };

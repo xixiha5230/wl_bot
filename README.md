@@ -22,15 +22,15 @@ HTTP 网页在 `http://192.168.1.11/`，WebSocket 在 `ws://192.168.1.11:81/`，
 
 | 任务 | 优先级 | 核心 | 周期 | 职责 |
 | --- | --- | --- | --- | --- |
-| `control_task` | 7 | 1 | 1 kHz | 读 IMU、LQR 平衡 / YAW / 腿部控制、故障判定 |
-| `foc_task` | 6 | 1 | 1 kHz | SimpleFOC `loopFOC` + `move` |
+| `control_task` | 7 | 1 | ~0.5–1 kHz | 读 IMU、LQR 平衡 / YAW / 腿部控制、`loopFOC` + `move`、故障判定 |
 | `leg_task` | 4 | 1 | 100 Hz | 从邮箱取最新腿部姿态并写 STS 舵机 |
 | `servo_task` | 3 | 1 | 2 s | 舵机反馈诊断 |
 | `battery_task` | 2 | 1 | 1 s | 电压采样 + LED |
 
 - 所有应用任务绑定 core 1，core 0 留给 Wi-Fi / 系统栈。
 - 跨任务共享状态（`robot_command_t`、FOC 模式/目标、`robot_state`）统一用 `portMUX` 临界区保护。
-- 控制环只把腿部姿态写入长度 1 的邮箱，UART 与互斥量不会阻塞平衡环。
+- 控制环在同一循环里完成 `loopFOC()+move()`（与原版单循环一致），只把腿部姿态写入长度 1 的邮箱，
+  UART 与互斥量不会阻塞平衡环。
 
 ## 功能
 
@@ -40,7 +40,8 @@ HTTP 网页在 `http://192.168.1.11/`，WebSocket 在 `ws://192.168.1.11:81/`，
   （`voltage_power_supply=8`、`voltage_sensor_align=6`、速度环 `P=0.05/I=1`）。
 - **腿部舵机**：STS3032 半双工同步写，行程标定 + 安全限幅。
 - **控制环**：LQR 平衡、YAW 转向、腿部高度 + roll 补偿、跳跃、失控保护。
-- **电源**：电压采样（EWMA 滤波）+ LED 迟滞指示 + 低压保护。
+- **运行时调参**：`pid` / `lpf` / `zero` / `yaw`，边跑边调，立即生效。
+- **电源**：电压采样（EWMA 滤波）+ LED 迟滞指示 + 低压保护（去抖）。
 - **网络**：HTTP 网页（原版 `basic_web`）、WebSocket 遥控（端口 81）、`/api/status` JSON。
 - **串口控制台**：UART0，提示符 `wlrobot>`。
 
@@ -85,13 +86,30 @@ m_target <left> <right>    直接设定目标
 m_state / m_stop           电机状态 / 停止
 
 go <0|1>                   使能平衡输出
-height <32..80>            腿部高度
+height <32..80>            腿部高度（内部有斜坡，避免跳变冲击）
 joy <x> <y>                虚拟摇杆
 dir <0..5>                 运动方向（5=jump, 4=stop）
-rc                         控制状态（含 state/fault）
-enc                        读取两路 AS5600
+rc                         控制状态（state/fault/terms/leg_add/zero）
+enc / imu                  读取编码器 / 读取 accel,gyro,angle
+rate                       测量 control/FOC 循环频率
+jit [sec]                  测量 lqr_angle/roll/leg_add 峰峰值（高频抖动）
+
+pid                        列出全部 PID
+pid <name> <P> <I> [D] [limit]   改 PID（立即生效）
+lpf <name> <Tf>            改低通（joyy/zeropoint/roll）
+zero [deg]                 查看/设置平衡零点（基准值）
+yaw <1|-1|0>                YAW 正常 / 反向 / 关闭
 bat                        电池电压（含原始 ADC 值）
 ```
+
+## 平衡零点与调参
+
+- 本台实测机械平衡角**随腿高变化**：h32≈4.0°，h52≈3.2°，h80≈0.4°，约 **-0.075°/单位**。
+- 实现：`angle_zeropoint`（基准，h38 处默认 3.55°）+ 高度前馈；再由 `pid zeropoint`
+  （P=0.001，慢速）自适应跟踪残差，`rc` 的 `terms ... zero=` 显示当前生效零点。
+- 高度指令经软件斜坡（`LEG_HEIGHT_SLEW`）输出，切换高度时不会瞬间冲击机身。
+- 调参建议顺序：先 `zero` 找准站立点，再 `pid angle`（刚度）、`pid gyro`（阻尼），
+  最后 `pid distance` / `pid speed`（前后移动）与 `yaw_angle` / `yaw_gyro`（转向）。
 
 ## 标定数据（`main/robot_config.h`）
 
@@ -103,13 +121,16 @@ ID1 机械行程 2030..2575，ID2 1512..2077
 
 ## 关键移植决策
 
+- **FOC 并入控制任务**：原版是单循环里 `loopFOC()+move()`。曾拆成独立 `foc_task`，结果两个 1 kHz
+  任务在同核节拍错位 + I2C 争用，FOC 实际掉到 ~300 Hz、力矩更新迟滞导致站不住；合并回单循环后恢复。
 - **LEDC 而非 MCPWM**：组件默认 MCPWM，但右电机（MCPWM 分组 1）带轮胎时对齐反复失败；
   原版 Arduino SimpleFOC 使用 LEDC，改回后带载对齐正常。
 - **自定义 `BoardEncoder : Sensor`**：复用现有 `i2c_master` AS5600，避免与组件的 `i2c_bus` 争用端口。
-- **右编码器与 MPU6050 共用 I2C1**：控制任务读 IMU 与 FOC 读右编码器会争用总线；
-  运行时 I2C 超时设为 10 ms，稳态下无读失败（仅启动瞬间偶发一次）。
+- **右编码器与 MPU6050 共用 I2C1**：运行时 I2C 超时设为 10 ms，稳态下无读失败。
+- **网页摇杆字符串**：原版网页用 `Number.toFixed()` 发送摇杆值（字符串），原版 ArduinoJson 会自动
+  转数值；cJSON 不会。已在网页改为数值，并在固件端兼容字符串。
 - **启动流程**：传感器初始化（失败重试）→ FOC 初始化 → 自动对齐（失败重试 3 次）→ 启动控制。
-  对齐通过信号量暂停 FOC 任务，避免相电压被覆盖。
+  对齐用互斥量串行化 `loopFOC`，避免相电压被覆盖；对齐失败自动断电。
 
 ## 备注
 

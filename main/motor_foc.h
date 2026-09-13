@@ -62,6 +62,13 @@ void motor_foc_stop(void);
 
 void motor_foc_get_feedback(motor_id_t motor, motor_feedback_t *feedback);
 
+/* Run one FOC iteration (sensor update + torque + shaft feedback). The control
+ * task calls this once per loop, mirroring the reference single-loop design. */
+void motor_foc_step(void);
+
+/* Number of FOC-loop iterations since boot (for rate diagnostics). */
+uint32_t motor_foc_loop_count(void);
+
 #ifdef __cplusplus
 }
 #endif

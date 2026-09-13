@@ -499,8 +499,8 @@ extern "C" const char *basic_web_page(void)
 
             function postCoordinate()
             { 
-                joyX = (100*((movedX - centerX)/maxMoveStick)).toFixed();
-                joyY = ((100*((movedY - centerY)/maxMoveStick))*-1).toFixed();
+                joyX = Math.round(100*((movedX - centerX)/maxMoveStick));
+                joyY = Math.round((100*((movedY - centerY)/maxMoveStick))*-1);
 
                 send_data();
             }

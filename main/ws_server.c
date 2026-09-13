@@ -32,6 +32,20 @@ static int dir_from_string(const char *dir)
     return ROBOT_STOP;
 }
 
+/* ArduinoJson (used by the reference firmware) converts numeric strings, while
+ * cJSON keeps them as strings. The original web page sends the joystick values
+ * through Number.toFixed(), i.e. as strings, so accept both forms. */
+static int json_to_int(const cJSON *item, int fallback)
+{
+    if (cJSON_IsNumber(item)) {
+        return item->valueint;
+    }
+    if (cJSON_IsString(item) && item->valuestring != NULL) {
+        return atoi(item->valuestring);
+    }
+    return fallback;
+}
+
 /* Mirrors RobotProtocol::parseBasic from the reference firmware. */
 static void handle_basic_json(const char *text)
 {
@@ -51,8 +65,8 @@ static void handle_basic_json(const char *text)
         }
 
         item = cJSON_GetObjectItemCaseSensitive(doc, "height");
-        if (cJSON_IsNumber(item)) {
-            int height = item->valueint;
+        if (item != NULL) {
+            int height = json_to_int(item, LEG_HEIGHT_DEFAULT);
             if (height < LEG_HEIGHT_MIN) {
                 height = LEG_HEIGHT_MIN;
             } else if (height > LEG_HEIGHT_MAX) {
@@ -61,25 +75,23 @@ static void handle_basic_json(const char *text)
             robot_control_set_height(height);
         }
         item = cJSON_GetObjectItemCaseSensitive(doc, "roll");
-        if (cJSON_IsNumber(item)) {
-            robot_control_set_roll(item->valueint);
+        if (item != NULL) {
+            robot_control_set_roll(json_to_int(item, 0));
         }
         item = cJSON_GetObjectItemCaseSensitive(doc, "linear");
-        if (cJSON_IsNumber(item)) {
-            robot_control_set_linear(item->valueint);
+        if (item != NULL) {
+            robot_control_set_linear(json_to_int(item, 0));
         }
         item = cJSON_GetObjectItemCaseSensitive(doc, "angular");
-        if (cJSON_IsNumber(item)) {
-            robot_control_set_angular(item->valueint);
+        if (item != NULL) {
+            robot_control_set_angular(json_to_int(item, 0));
         }
         item = cJSON_GetObjectItemCaseSensitive(doc, "stable");
-        if (cJSON_IsNumber(item)) {
-            robot_control_set_go(item->valueint != 0);
+        if (item != NULL) {
+            robot_control_set_go(json_to_int(item, 0) != 0);
         }
-        item = cJSON_GetObjectItemCaseSensitive(doc, "joy_x");
-        int joy_x = cJSON_IsNumber(item) ? item->valueint : 0;
-        item = cJSON_GetObjectItemCaseSensitive(doc, "joy_y");
-        int joy_y = cJSON_IsNumber(item) ? item->valueint : 0;
+        int joy_x = json_to_int(cJSON_GetObjectItemCaseSensitive(doc, "joy_x"), 0);
+        int joy_y = json_to_int(cJSON_GetObjectItemCaseSensitive(doc, "joy_y"), 0);
         robot_control_set_joy(joy_x, joy_y);
     }
 

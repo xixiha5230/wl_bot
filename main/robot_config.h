@@ -55,3 +55,16 @@
 #define LEG_JUMP_ACC             0
 #define LEG_JUMP_HEIGHT          80
 #define LEG_JUMP_LAND_HEIGHT     40
+
+/* Max leg-height change per control loop (~500 Hz). Softens a slider jump so the
+ * leg motion does not kick the chassis hard enough to lose balance. */
+#define LEG_HEIGHT_SLEW          0.15f
+
+/*
+ * Balance zero point vs leg height. Changing the leg extension moves the CoM,
+ * so the chassis tilt at which the robot balances changes too. Measured on this
+ * build: ~4.0 deg at height 32, ~3.2 at 52 and ~0.4 at 80 => about -0.075 deg
+ * per height unit. The value is the balance angle at LEG_HEIGHT_DEFAULT.
+ */
+#define LEG_BALANCE_ZERO_DEFAULT 3.55f
+#define LEG_BALANCE_ZERO_SLOPE   0.075f

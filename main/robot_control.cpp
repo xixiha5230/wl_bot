@@ -49,12 +49,12 @@ static StabPID pid_speed(0.7f, 0.0f, 0.0f, 100000.0f, 8.0f);
 static StabPID pid_yaw_angle(1.0f, 0.0f, 0.0f, 100000.0f, 8.0f);
 static StabPID pid_yaw_gyro(0.04f, 0.0f, 0.0f, 100000.0f, 8.0f);
 static StabPID pid_lqr_u(1.0f, 15.0f, 0.0f, 100000.0f, 8.0f);
-static StabPID pid_zeropoint(0.002f, 0.0f, 0.0f, 100000.0f, 4.0f);
-static StabPID pid_roll_angle(8.0f, 0.0f, 0.0f, 100000.0f, 450.0f);
+static StabPID pid_zeropoint(0.001f, 0.0f, 0.0f, 100000.0f, 4.0f);
+static StabPID pid_roll_angle(4.0f, 0.0f, 0.0f, 100000.0f, 450.0f);
 
 static LowPassFilter lpf_joy_y(0.2f);
 static LowPassFilter lpf_zeropoint(0.1f);
-static LowPassFilter lpf_roll(0.3f);
+static LowPassFilter lpf_roll(0.6f);
 
 /* Shared remote-control command, guarded by cmd_mux. */
 static portMUX_TYPE cmd_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -79,7 +79,10 @@ static float angle_control;
 static float gyro_control;
 static float speed_control;
 static float distance_control;
-static float angle_zeropoint = -2.25f;
+/* Balance zero point: base value adjusted by the height-dependent offset. The
+ * reference -2.25 assumes a different sensor orientation; this is the value
+ * measured on this build (see robot_config.h). 'zero' changes the base. */
+static float angle_zeropoint = LEG_BALANCE_ZERO_DEFAULT;
 static float distance_zeropoint = -256.0f;
 
 /* Yaw state */
@@ -94,6 +97,7 @@ static float YAW_output;
 static int prev_dir = ROBOT_STOP;
 static int prev_joy_x;
 static int prev_joy_y;
+static bool prev_go;
 
 /* Leg / motion flags */
 static float robot_speed;
@@ -101,6 +105,11 @@ static float robot_speed_last;
 static int wrobot_move_stop_flag;
 static int jump_flag;
 static float leg_position_add;
+static float leg_height_cmd = (float)LEG_HEIGHT_DEFAULT;
+static float last_roll_angle;
+static float last_balance_zero;
+static int yaw_mode = 1;   /* 1 = normal, -1 = inverted, 0 = disabled */
+static bool arm_request;   /* reset distance zero/PIDs when go turns on */
 
 /* Attitude/battery fault latch: motors are disabled and stay off until the
  * operator commands go=1 again once the fault condition has cleared. */
@@ -115,6 +124,7 @@ static int recover_ticks;
 
 static bool control_started;
 static QueueHandle_t leg_queue;
+static uint32_t control_loop_count;
 
 typedef struct {
     int16_t position1;
@@ -133,6 +143,102 @@ robot_command_t robot_control_get_command(void)
     robot_command_t snapshot = command;
     portEXIT_CRITICAL(&cmd_mux);
     return snapshot;
+}
+
+static const char *const pid_names[ROBOT_PID_COUNT] = {
+    "angle", "gyro", "distance", "speed", "yaw_angle",
+    "yaw_gyro", "lqr_u", "zeropoint", "roll_angle",
+};
+
+static PIDController *pid_at(int which)
+{
+    switch (which) {
+    case ROBOT_PID_ANGLE:      return &pid_angle;
+    case ROBOT_PID_GYRO:       return &pid_gyro;
+    case ROBOT_PID_DISTANCE:   return &pid_distance;
+    case ROBOT_PID_SPEED:      return &pid_speed;
+    case ROBOT_PID_YAW_ANGLE:  return &pid_yaw_angle;
+    case ROBOT_PID_YAW_GYRO:   return &pid_yaw_gyro;
+    case ROBOT_PID_LQR_U:      return &pid_lqr_u;
+    case ROBOT_PID_ZEROPOINT:  return &pid_zeropoint;
+    case ROBOT_PID_ROLL_ANGLE: return &pid_roll_angle;
+    default:                   return NULL;
+    }
+}
+
+int robot_control_pid_count(void)
+{
+    return ROBOT_PID_COUNT;
+}
+
+const char *robot_control_pid_name(int which)
+{
+    return (which >= 0 && which < ROBOT_PID_COUNT) ? pid_names[which] : "";
+}
+
+void robot_control_get_pid(int which, float *p, float *i, float *d, float *limit)
+{
+    PIDController *pid = pid_at(which);
+    if (pid == NULL) {
+        return;
+    }
+    if (p) *p = pid->P;
+    if (i) *i = pid->I;
+    if (d) *d = pid->D;
+    if (limit) *limit = pid->limit;
+}
+
+void robot_control_set_pid(int which, float p, float i, float d, float limit)
+{
+    PIDController *pid = pid_at(which);
+    if (pid == NULL) {
+        return;
+    }
+    pid->P = p;
+    if (i >= 0.0f) pid->I = i;
+    if (d >= 0.0f) pid->D = d;
+    if (limit > 0.0f) pid->limit = limit;
+}
+
+static LowPassFilter *lpf_at(int which)
+{
+    switch (which) {
+    case 0: return &lpf_joy_y;
+    case 1: return &lpf_zeropoint;
+    case 2: return &lpf_roll;
+    default: return NULL;
+    }
+}
+
+void robot_control_get_lpf(int which, float *tf)
+{
+    LowPassFilter *filter = lpf_at(which);
+    if (filter != NULL && tf != NULL) {
+        *tf = filter->Tf;
+    }
+}
+
+void robot_control_set_lpf(int which, float tf)
+{
+    LowPassFilter *filter = lpf_at(which);
+    if (filter != NULL) {
+        filter->Tf = tf;
+    }
+}
+
+void robot_control_set_angle_zeropoint(float degrees)
+{
+    angle_zeropoint = degrees;
+}
+
+float robot_control_get_angle_zeropoint(void)
+{
+    return angle_zeropoint;
+}
+
+float robot_control_get_balance_zero(void)
+{
+    return last_balance_zero;
 }
 
 void robot_control_set_go(bool go)
@@ -183,6 +289,16 @@ void robot_control_set_angular(int angular)
     portENTER_CRITICAL(&cmd_mux);
     command.angular = angular;
     portEXIT_CRITICAL(&cmd_mux);
+}
+
+void robot_control_set_yaw_mode(int mode)
+{
+    yaw_mode = (mode > 0) ? 1 : (mode < 0 ? -1 : 0);
+}
+
+int robot_control_get_yaw_mode(void)
+{
+    return yaw_mode;
 }
 
 static void reset_pids(void)
@@ -286,7 +402,19 @@ static void lqr_balance_loop(const motor_feedback_t *left, const motor_feedback_
     LQR_angle = imu->angle_y;
     LQR_gyro = imu->gyro_y_dps;
 
-    angle_control = pid_angle(LQR_angle - angle_zeropoint);
+    if (arm_request) {
+        /* Start from the current wheel position instead of the -256 sentinel,
+         * so enabling balance does not produce a large distance kick. */
+        distance_zeropoint = LQR_distance;
+        reset_pids();
+        arm_request = false;
+    }
+
+    /* Balance zero compensates for the height-dependent CoM position. */
+    float zero = angle_zeropoint -
+                 LEG_BALANCE_ZERO_SLOPE * (leg_height_cmd - (float)LEG_HEIGHT_DEFAULT);
+    last_balance_zero = zero;
+    angle_control = pid_angle(LQR_angle - zero);
     gyro_control = pid_gyro(LQR_gyro);
 
     if (cmd->joy_y != 0) {
@@ -383,9 +511,18 @@ static void leg_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
     }
 
     float roll_angle = imu->angle_x + 2.0f;
+    last_roll_angle = imu->angle_x;
     leg_position_add = pid_roll_angle(lpf_roll(roll_angle));
 
-    float height_offset = LEG_HEIGHT_STEP * (float)(cmd->height - LEG_HEIGHT_MIN);
+    /* Slew the commanded height so a slider jump does not kick the chassis. */
+    float target_height = (float)cmd->height;
+    if (target_height > leg_height_cmd) {
+        leg_height_cmd += fminf(LEG_HEIGHT_SLEW, target_height - leg_height_cmd);
+    } else {
+        leg_height_cmd -= fminf(LEG_HEIGHT_SLEW, leg_height_cmd - target_height);
+    }
+
+    float height_offset = LEG_HEIGHT_STEP * (leg_height_cmd - LEG_HEIGHT_MIN);
     float position1 = LEG_POSITION_CENTER + LEG_MOUNT_OFFSET + height_offset - leg_position_add;
     float position2 = LEG_POSITION_CENTER - LEG_MOUNT_OFFSET - height_offset - leg_position_add;
 
@@ -402,8 +539,9 @@ static void apply_motor_targets(const robot_command_t *cmd)
         leg_position_add = 0.0f;
         return;
     }
-    motor_foc_set_target(MOTOR_LEFT, (-0.5f) * (LQR_u + YAW_output));
-    motor_foc_set_target(MOTOR_RIGHT, (-0.5f) * (LQR_u - YAW_output));
+    float yaw = (yaw_mode == 0) ? 0.0f : ((yaw_mode > 0) ? YAW_output : -YAW_output);
+    motor_foc_set_target(MOTOR_LEFT, (-0.5f) * (LQR_u + yaw));
+    motor_foc_set_target(MOTOR_RIGHT, (-0.5f) * (LQR_u - yaw));
 }
 
 /* ------------------------------------------------------------------------- */
@@ -424,6 +562,31 @@ static float battery_voltage_throttled(void)
         cached = board_battery_voltage();
     }
     return cached;
+}
+
+/* The battery sense input is noisy on some builds, so only cut the motors after
+ * the reading stays low for a while, and ignore implausibly low values (a
+ * powered 2S pack cannot read below ~4 V; that means a bad connection). */
+#define BATTERY_LOW_DEBOUNCE  40      /* BATTERY_CHECK_PERIOD ticks -> ~2 s */
+#define BATTERY_MIN_PLAUSIBLE 4.0f
+
+static bool battery_is_low(void)
+{
+    static int low_count;
+    float voltage = battery_voltage_throttled();
+
+    if (voltage < BATTERY_MIN_PLAUSIBLE) {
+        low_count = 0;
+        return false;
+    }
+    if (voltage < BOARD_BATTERY_LOW_VOLTAGE) {
+        if (low_count < BATTERY_LOW_DEBOUNCE) {
+            low_count++;
+        }
+        return low_count >= BATTERY_LOW_DEBOUNCE;
+    }
+    low_count = 0;
+    return false;
 }
 
 static void enter_fault(fault_reason_t reason)
@@ -480,8 +643,14 @@ static void control_task(void *arg)
 
     while (true) {
         robot_command_t cmd = robot_control_get_command();
+        __atomic_fetch_add(&control_loop_count, 1, __ATOMIC_RELAXED);
 
         if (sensors_read_imu(&imu) == ESP_OK) {
+            if (cmd.go && !prev_go) {
+                arm_request = true;
+            }
+            prev_go = cmd.go;
+
             if (fault_reason != FAULT_NONE) {
                 fault_recover(&cmd, &imu);
                 leg_loop(&imu, &cmd);
@@ -495,7 +664,7 @@ static void control_task(void *arg)
 
                 if (fabsf(LQR_angle) > ATTITUDE_FAULT_DEG) {
                     enter_fault(FAULT_ATTITUDE);
-                } else if (cmd.go && battery_voltage_throttled() < BOARD_BATTERY_LOW_VOLTAGE) {
+                } else if (cmd.go && battery_is_low()) {
                     enter_fault(FAULT_BATTERY);
                 } else {
                     apply_motor_targets(&cmd);
@@ -508,6 +677,7 @@ static void control_task(void *arg)
             prev_joy_y = cmd.joy_y;
         }
 
+        motor_foc_step();
         vTaskDelayUntil(&last_wake, 1);
     }
 }
@@ -550,7 +720,40 @@ float robot_control_lqr_u(void)
     return LQR_u;
 }
 
+float robot_control_yaw_output(void)
+{
+    return YAW_output;
+}
+
+float robot_control_yaw_total(void)
+{
+    return YAW_angle_total;
+}
+
+void robot_control_get_terms(float *angle, float *gyro, float *distance, float *speed)
+{
+    if (angle) *angle = angle_control;
+    if (gyro) *gyro = gyro_control;
+    if (distance) *distance = distance_control;
+    if (speed) *speed = speed_control;
+}
+
+float robot_control_leg_add(void)
+{
+    return leg_position_add;
+}
+
+float robot_control_roll_angle(void)
+{
+    return last_roll_angle;
+}
+
 bool robot_control_faulted(void)
 {
     return fault_reason != FAULT_NONE;
+}
+
+uint32_t robot_control_loop_count(void)
+{
+    return __atomic_load_n(&control_loop_count, __ATOMIC_RELAXED);
 }

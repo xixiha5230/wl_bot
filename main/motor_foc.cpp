@@ -13,10 +13,6 @@
 
 static const char *TAG = "motor_foc";
 
-/* All app tasks share core 1, leaving core 0 to the Wi-Fi/system stack. */
-#define FOC_TASK_CORE           1
-#define FOC_TASK_PRIO           6
-
 /* Forwards SimpleFOC debug output (MOT: ...) to ESP-IDF logging. */
 class LogPrint : public Print {
 public:
@@ -95,7 +91,7 @@ static BLDCDriver3PWM driver_right(BOARD_MOTOR_RIGHT_U, BOARD_MOTOR_RIGHT_V,
 static BoardEncoder encoder_left(0);
 static BoardEncoder encoder_right(1);
 
-/* Shared state between the console/control tasks and the FOC task. */
+/* Shared state between the control task and the console/alignment callers. */
 static portMUX_TYPE foc_mux = portMUX_INITIALIZER_UNLOCKED;
 static motor_mode_t current_mode = MOTOR_MODE_DISABLED;
 static float target_left = 0.0f;
@@ -104,8 +100,9 @@ static bool foc_ready = false;
 static bool foc_aligned = false;
 static bool foc_suspended = false;
 
-/* Handshake used to pause the FOC task before (re)aligning the sensors. */
-static SemaphoreHandle_t foc_paused_sem;
+/* Serializes motor stepping (control task) against sensor alignment. */
+static SemaphoreHandle_t foc_mutex;
+static uint32_t foc_loop_count;
 
 static MotionControlType component_mode(motor_mode_t mode)
 {
@@ -147,68 +144,6 @@ static void configure_motor(BLDCMotor &motor, BLDCDriver3PWM &driver, BoardEncod
     motor.LPF_velocity.Tf = 0.005f;
 }
 
-/* Pause the FOC task and wait until it is no longer driving the motors. */
-static esp_err_t pause_foc(void)
-{
-    /* Drain any stale acknowledgement left by a previous pause. */
-    while (xSemaphoreTake(foc_paused_sem, 0) == pdTRUE) {
-    }
-    portENTER_CRITICAL(&foc_mux);
-    foc_suspended = true;
-    portEXIT_CRITICAL(&foc_mux);
-    if (xSemaphoreTake(foc_paused_sem, pdMS_TO_TICKS(100)) != pdTRUE) {
-        portENTER_CRITICAL(&foc_mux);
-        foc_suspended = false;
-        portEXIT_CRITICAL(&foc_mux);
-        ESP_LOGE(TAG, "FOC task did not pause in time");
-        return ESP_ERR_TIMEOUT;
-    }
-    return ESP_OK;
-}
-
-static void resume_foc(void)
-{
-    portENTER_CRITICAL(&foc_mux);
-    foc_suspended = false;
-    portEXIT_CRITICAL(&foc_mux);
-}
-
-static void foc_task(void *arg)
-{
-    (void)arg;
-    while (true) {
-        bool ready;
-        bool suspended;
-        portENTER_CRITICAL(&foc_mux);
-        ready = foc_ready;
-        suspended = foc_suspended;
-        portEXIT_CRITICAL(&foc_mux);
-
-        if (!ready || suspended) {
-            if (suspended) {
-                xSemaphoreGive(foc_paused_sem);
-            }
-            vTaskDelay(1);
-            continue;
-        }
-
-        motor_mode_t mode;
-        float left_target;
-        float right_target;
-        portENTER_CRITICAL(&foc_mux);
-        mode = current_mode;
-        left_target = target_left;
-        right_target = target_right;
-        portEXIT_CRITICAL(&foc_mux);
-
-        motor_left.loopFOC();
-        motor_right.loopFOC();
-        motor_left.move(mode == MOTOR_MODE_DISABLED ? 0.0f : left_target);
-        motor_right.move(mode == MOTOR_MODE_DISABLED ? 0.0f : right_target);
-        vTaskDelay(1);
-    }
-}
-
 esp_err_t motor_foc_init(void)
 {
     portENTER_CRITICAL(&foc_mux);
@@ -218,8 +153,8 @@ esp_err_t motor_foc_init(void)
         return ESP_OK;
     }
 
-    foc_paused_sem = xSemaphoreCreateBinary();
-    if (foc_paused_sem == NULL) {
+    foc_mutex = xSemaphoreCreateMutex();
+    if (foc_mutex == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
@@ -247,9 +182,59 @@ esp_err_t motor_foc_init(void)
     portENTER_CRITICAL(&foc_mux);
     foc_ready = true;
     portEXIT_CRITICAL(&foc_mux);
-
-    xTaskCreatePinnedToCore(foc_task, "foc_task", 6144, NULL, FOC_TASK_PRIO, NULL, FOC_TASK_CORE);
     return ESP_OK;
+}
+
+/* Run one FOC iteration: update sensors, apply torque, update shaft feedback.
+ * Called from the control task at ~1 kHz, matching the reference single loop
+ * (mpu update -> control -> loopFOC -> move). */
+void motor_foc_step(void)
+{
+    portENTER_CRITICAL(&foc_mux);
+    bool ready = foc_ready;
+    bool suspended = foc_suspended;
+    portEXIT_CRITICAL(&foc_mux);
+    if (!ready || suspended) {
+        return;
+    }
+    if (xSemaphoreTake(foc_mutex, 0) != pdTRUE) {
+        return;
+    }
+
+    __atomic_fetch_add(&foc_loop_count, 1, __ATOMIC_RELAXED);
+
+    motor_mode_t mode;
+    float left_target;
+    float right_target;
+    portENTER_CRITICAL(&foc_mux);
+    mode = current_mode;
+    left_target = target_left;
+    right_target = target_right;
+    portEXIT_CRITICAL(&foc_mux);
+
+    motor_left.loopFOC();
+    motor_right.loopFOC();
+    motor_left.move(mode == MOTOR_MODE_DISABLED ? 0.0f : left_target);
+    motor_right.move(mode == MOTOR_MODE_DISABLED ? 0.0f : right_target);
+
+    xSemaphoreGive(foc_mutex);
+}
+
+/* Take the motor lock and stop the control task from stepping while aligning. */
+static void begin_align(void)
+{
+    portENTER_CRITICAL(&foc_mux);
+    foc_suspended = true;
+    portEXIT_CRITICAL(&foc_mux);
+    xSemaphoreTake(foc_mutex, portMAX_DELAY);
+}
+
+static void end_align(void)
+{
+    xSemaphoreGive(foc_mutex);
+    portENTER_CRITICAL(&foc_mux);
+    foc_suspended = false;
+    portEXIT_CRITICAL(&foc_mux);
 }
 
 esp_err_t motor_foc_align(void)
@@ -262,15 +247,14 @@ esp_err_t motor_foc_align(void)
     }
 
     ESP_LOGW(TAG, "aligning motors: wheels will move");
-    if (pause_foc() != ESP_OK) {
-        return ESP_FAIL;
-    }
+    begin_align();
 
     motor_left.enable();
     motor_right.enable();
     int left = motor_left.initFOC();
     int right = motor_right.initFOC();
-    resume_foc();
+
+    end_align();
 
     if (!left || !right) {
         motor_left.disable();
@@ -306,13 +290,12 @@ esp_err_t motor_foc_align_motor(motor_id_t motor)
 
     BLDCMotor &m = (motor == MOTOR_LEFT) ? motor_left : motor_right;
     motor_foc_set_target(motor, 0.0f);
-    if (pause_foc() != ESP_OK) {
-        return ESP_FAIL;
-    }
+    begin_align();
 
     m.enable();
     int ok = m.initFOC();
-    resume_foc();
+
+    end_align();
 
     if (!ok) {
         m.disable();
@@ -445,4 +428,9 @@ void motor_foc_get_feedback(motor_id_t motor, motor_feedback_t *feedback)
     feedback->velocity = m.shaft_velocity;
     feedback->sensor_angle = m.sensor ? m.sensor->getAngle() : 0.0f;
     feedback->voltage_q = m.voltage.q;
+}
+
+uint32_t motor_foc_loop_count(void)
+{
+    return __atomic_load_n(&foc_loop_count, __ATOMIC_RELAXED);
 }
