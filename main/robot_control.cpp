@@ -55,14 +55,15 @@ static StabPID pid_lqr_u(1.0f, 15.0f, 0.0f, 100000.0f, 8.0f);
  * stationary lean well, and this slow loop otherwise wanders ('pid zeropoint'
  * re-enables it if ever needed). */
 static StabPID pid_zeropoint(0.0f, 0.0f, 0.0f, 100000.0f, 4.0f);
-/* P=4, I=20: the proportional gain has to stay low because the leg servo +
- * LPF lag leaves little phase margin (P=10 rang at ~1.2 Hz). A large integral
- * then does the real work: the leg servo is slow enough that the high integral
- * gain does not overshoot, and it levels a slope in ~0.5 s instead of tens of
- * seconds with I=1 (I>30 starts to ring). Output limit 500 sits above the
- * maximum differential the leg travel clamps allow, so those clamps are the
- * real bound; the anti-windup keeps the integral inside the same limit. */
-static StabPID pid_roll_angle(4.0f, 20.0f, 0.0f, 100000.0f, 500.0f);
+/* P=4, I=10: the proportional gain has to stay low because the leg servo +
+ * LPF lag leaves little phase margin (P=10 rang at ~1.2 Hz). The integral then
+ * does the real work: it levels a slope in ~1.5 s where I=1 took tens of
+ * seconds. I=20 was rejected: on a large roll error (a fall) the integral
+ * grew at ~600/s and slammed the legs to the clamps within a second, which
+ * kicks the chassis; I=10 keeps the slope response while staying gentle.
+ * Output limit 500 sits above the maximum differential the leg travel clamps
+ * allow; the anti-windup keeps the integral inside the same limit. */
+static StabPID pid_roll_angle(4.0f, 10.0f, 0.0f, 100000.0f, 500.0f);
 
 static LowPassFilter lpf_joy_y(0.2f);
 static LowPassFilter lpf_zeropoint(0.1f);
@@ -728,8 +729,17 @@ static void leg_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
 
     float roll_angle = imu->angle_x + roll_bias - (float)cmd->roll;
     last_roll_angle = imu->angle_x;
-    float roll_out = pid_roll_angle(lpf_roll(roll_angle));
-    leg_position_add = (roll_mode == 0) ? 0.0f : (float)roll_mode * roll_out;
+    if (fault_reason != FAULT_NONE) {
+        /* While faulted the robot is usually on its side and the roll error is
+         * huge; chasing it would wind the integral up and slam the legs to the
+         * travel clamps. Hold the legs level and keep the loop unwound so the
+         * recovery starts from a neutral pose. */
+        pid_roll_angle.reset();
+        leg_position_add = 0.0f;
+    } else {
+        float roll_out = pid_roll_angle(lpf_roll(roll_angle));
+        leg_position_add = (roll_mode == 0) ? 0.0f : (float)roll_mode * roll_out;
+    }
 
     /* Slew the commanded height so a slider jump does not kick the chassis. */
     float target_height = (float)cmd->height;
