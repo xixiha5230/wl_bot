@@ -51,6 +51,10 @@ robot_command_t robot_control_get_command(void);
 void robot_control_set_yaw_mode(int mode);
 int robot_control_get_yaw_mode(void);
 
+/* Roll correction sign, same convention (flip live to A/B test the sense). */
+void robot_control_set_roll_mode(int mode);
+int robot_control_get_roll_mode(void);
+
 /* Jump profile, tunable at runtime (defaults from LEG_JUMP_* in robot_config.h):
  *   height/land_height in mm, speed 0..2000 (0 = max), acc 0..100,
  *   land_ticks = control ticks (~1/500 s) after launch before the land command. */

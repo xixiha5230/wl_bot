@@ -53,11 +53,11 @@ static StabPID pid_lqr_u(1.0f, 15.0f, 0.0f, 100000.0f, 8.0f);
  * stationary lean well, and this slow loop otherwise wanders ('pid zeropoint'
  * re-enables it if ever needed). */
 static StabPID pid_zeropoint(0.0f, 0.0f, 0.0f, 100000.0f, 4.0f);
-static StabPID pid_roll_angle(4.0f, 0.0f, 0.0f, 100000.0f, 450.0f);
+static StabPID pid_roll_angle(10.0f, 1.0f, 0.0f, 100000.0f, 150.0f);
 
 static LowPassFilter lpf_joy_y(0.2f);
 static LowPassFilter lpf_zeropoint(0.1f);
-static LowPassFilter lpf_roll(0.6f);
+static LowPassFilter lpf_roll(0.3f);
 
 /* Shared remote-control command, guarded by cmd_mux. */
 static portMUX_TYPE cmd_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -119,6 +119,7 @@ static float last_roll_angle;
 static float last_balance_zero;
 static volatile float angle_pp;
 static int yaw_mode = 1;   /* 1 = normal, -1 = inverted, 0 = disabled */
+static int roll_mode = 1;  /* roll correction sign, same convention */
 static bool arm_request;   /* reset distance zero/PIDs when go turns on */
 
 /* Runtime-tunable jump profile (defaults mirror LEG_JUMP_* in robot_config.h).
@@ -335,6 +336,16 @@ void robot_control_set_yaw_mode(int mode)
 int robot_control_get_yaw_mode(void)
 {
     return yaw_mode;
+}
+
+void robot_control_set_roll_mode(int mode)
+{
+    roll_mode = (mode > 0) ? 1 : (mode < 0 ? -1 : 0);
+}
+
+int robot_control_get_roll_mode(void)
+{
+    return roll_mode;
 }
 
 void robot_control_set_jump_profile(int height, int land_height, int speed,
@@ -618,9 +629,10 @@ static void leg_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
         return;
     }
 
-    float roll_angle = imu->angle_x + 2.0f;
+    float roll_angle = imu->angle_x + 2.0f - (float)cmd->roll;
     last_roll_angle = imu->angle_x;
-    leg_position_add = pid_roll_angle(lpf_roll(roll_angle));
+    float roll_out = pid_roll_angle(lpf_roll(roll_angle));
+    leg_position_add = (roll_mode == 0) ? 0.0f : (float)roll_mode * roll_out;
 
     /* Slew the commanded height so a slider jump does not kick the chassis. */
     float target_height = (float)cmd->height;
@@ -761,6 +773,19 @@ static void control_task(void *arg)
     while (true) {
         robot_command_t cmd = robot_control_get_command();
         __atomic_fetch_add(&control_loop_count, 1, __ATOMIC_RELAXED);
+
+        /* Latched direction buttons drive like a held joystick (the reference
+         * firmware left ROBOT_FORWARD/BACK/LEFT/RIGHT unwired; only the jump
+         * edge used cmd.dir). Magnitudes match the tested joystick range. */
+        if (cmd.dir == ROBOT_FORWARD) {
+            cmd.joy_y = 60;
+        } else if (cmd.dir == ROBOT_BACK) {
+            cmd.joy_y = -60;
+        } else if (cmd.dir == ROBOT_LEFT) {
+            cmd.joy_x = -60;
+        } else if (cmd.dir == ROBOT_RIGHT) {
+            cmd.joy_x = 60;
+        }
 
         if (sensors_read_imu(&imu) == ESP_OK) {
             if (cmd.go && !prev_go) {

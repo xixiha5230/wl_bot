@@ -41,12 +41,14 @@
 #define LEG_HEIGHT_MAX           80
 #define LEG_HEIGHT_DEFAULT       38
 
-/* Software travel clamp, copied from the reference firmware. Kept inside the
- * calibrated safe range above. */
-#define LEG_POS1_MIN             2110
-#define LEG_POS1_MAX             2510
-#define LEG_POS2_MIN             1586
-#define LEG_POS2_MAX             1986
+/* Software travel clamp. The reference values pinned leg1 at its h38 pose
+ * (MIN 2110) and leg2 at h38 (MAX 1986), clipping roll correction to one
+ * direction and the height range to 38..80. Widened to cover h32..h80 plus
+ * roll margin; crouch jumps already proved servo1 reaches ~2050 unharmed. */
+#define LEG_POS1_MIN             2000
+#define LEG_POS1_MAX             2580
+#define LEG_POS2_MIN             1510
+#define LEG_POS2_MAX             2090
 
 /* Leg actuator speed/acceleration for normal height tracking and jumps. */
 #define LEG_MOVE_SPEED           200

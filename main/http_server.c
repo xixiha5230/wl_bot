@@ -58,7 +58,7 @@ static esp_err_t status_handler(httpd_req_t *request)
              "{\"state\":\"%s\",\"battery\":%.2f,\"go\":%d,\"height\":%d,"
              "\"lqr_angle\":%.2f,\"lqr_u\":%.3f,\"fault\":%d,"
              "\"joy_x\":%d,\"joy_y\":%d,\"dir\":%d,"
-             "\"zero\":%.2f,\"yaw_mode\":%d,"
+             "\"zero\":%.2f,\"yaw_mode\":%d,\"roll_mode\":%d,"
              "\"angle_pp\":%.2f,\"ta\":%.2f,\"tg\":%.2f,\"td\":%.2f,\"ts\":%.2f,"
              "\"leg_add\":%.1f,\"yaw\":%.1f,\"yaw_out\":%.2f,\"roll\":%.2f,"
              "\"vl\":%.2f,\"vr\":%.2f,\"gz\":%.2f,\"uptime\":%d,"
@@ -69,6 +69,7 @@ static esp_err_t status_handler(httpd_req_t *request)
              robot_control_lqr_u(), robot_control_faulted() ? 1 : 0,
              cmd.joy_x, cmd.joy_y, cmd.dir,
              robot_control_get_balance_zero(), robot_control_get_yaw_mode(),
+             robot_control_get_roll_mode(),
              robot_control_angle_pp(), ta, tg, td, ts,
              robot_control_leg_add(), robot_control_yaw_total(),
              robot_control_yaw_output(), robot_control_roll_angle(),
@@ -106,6 +107,11 @@ static esp_err_t set_handler(httpd_req_t *request)
         int v = atoi(value);
         robot_control_set_yaw_mode(v);
         snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied), "yaw=%d ", v);
+    }
+    if (httpd_query_key_value(query, "rollmode", value, sizeof(value)) == ESP_OK) {
+        int v = atoi(value);
+        robot_control_set_roll_mode(v);
+        snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied), "rollmode=%d ", v);
     }
     if (httpd_query_key_value(query, "go", value, sizeof(value)) == ESP_OK) {
         int v = atoi(value);
