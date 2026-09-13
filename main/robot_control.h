@@ -70,6 +70,22 @@ float robot_control_get_air_scale(void);
 float robot_control_accel_mag(void);
 void robot_control_get_accel(float *x, float *y, float *z);
 int robot_control_airborne(void);
+
+/* Research: drive both wheels at `target` (LQR_u units, clamped to +/-12) for
+ * `ms` milliseconds, bypassing balance and fault handling. */
+void robot_control_manual_drive(float target, int ms);
+bool robot_control_manual_active(void);
+int robot_control_manual_ticks(void);
+
+/* Self-right: drive the wheels toward upright while attitude-faulted, then
+ * hand over to the balance loop. [on]=1 starts, 0 cancels; params are torque
+ * (wheel units), release angle (deg) and direction sign. */
+void robot_control_set_getup(int on);
+void robot_control_set_getup_params(float torque, float release_deg, int sign);
+float robot_control_getup_torque(void);
+float robot_control_getup_release(void);
+int robot_control_getup_sign(void);
+int robot_control_getup_state(void);
 /* One-shot level calibration: disables roll correction so both legs sit at
  * their symmetric nominal pose (the mechanical horizontal reference), averages
  * the IMU roll, stores it as the new bias in NVS, then restores the loop.

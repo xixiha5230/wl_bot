@@ -151,6 +151,22 @@ static volatile int airborne;
 static volatile float accel_x_last;
 static volatile float accel_y_last;
 static volatile float accel_z_last;
+/* Research: direct wheel-torque override for self-righting experiments. While
+ * `manual_ticks` > 0 the control loop drives both wheels at `manual_target`
+ * (same units as LQR_u), bypassing balancing and fault handling. */
+static volatile float manual_target;
+static volatile int manual_ticks;
+static volatile bool manual_armed;
+/* Self-right state machine (research). When triggered while attitude-faulted,
+ * drives the wheels toward the side that reduces |pitch| and hands over to the
+ * balance loop once the chassis is near upright. */
+static volatile int getup_request;
+static int getup_state;             /* 0 idle, 1 driving to upright */
+static volatile int getup_state_pub;
+static float getup_torque = 18.0f;
+static float getup_release_deg = 20.0f;
+static int getup_sign = 1;
+static int getup_ticks;
 static bool arm_request;   /* reset distance zero/PIDs when go turns on */
 
 /* Runtime-tunable jump profile (defaults mirror LEG_JUMP_* in robot_config.h).
@@ -433,6 +449,68 @@ void robot_control_get_accel(float *x, float *y, float *z)
     if (x) *x = accel_x_last;
     if (y) *y = accel_y_last;
     if (z) *z = accel_z_last;
+}
+
+void robot_control_manual_drive(float target, int ms)
+{
+    if (target < -12.0f) target = -12.0f;
+    if (target > 12.0f) target = 12.0f;
+    if (ms < 0) ms = 0;
+    if (ms > 3000) ms = 3000;
+    manual_target = target;
+    manual_ticks = ms;   /* control loop runs at ~1 kHz, so 1 ms ~ 1 tick */
+}
+
+bool robot_control_manual_active(void)
+{
+    return manual_ticks > 0;
+}
+
+int robot_control_manual_ticks(void)
+{
+    return manual_ticks;
+}
+
+void robot_control_set_getup(int on)
+{
+    if (on) {
+        getup_request = 1;
+    } else {
+        getup_request = 0;
+        getup_state = 0;
+        getup_state_pub = 0;
+    }
+}
+
+void robot_control_set_getup_params(float torque, float release_deg, int sign)
+{
+    if (torque >= 0.0f && torque <= 30.0f) {
+        getup_torque = torque;
+    }
+    if (release_deg >= 2.0f && release_deg <= 45.0f) {
+        getup_release_deg = release_deg;
+    }
+    getup_sign = (sign < 0) ? -1 : 1;
+}
+
+float robot_control_getup_torque(void)
+{
+    return getup_torque;
+}
+
+float robot_control_getup_release(void)
+{
+    return getup_release_deg;
+}
+
+int robot_control_getup_sign(void)
+{
+    return getup_sign;
+}
+
+int robot_control_getup_state(void)
+{
+    return getup_state_pub;
 }
 
 int robot_control_airborne(void)
@@ -972,9 +1050,64 @@ static void control_task(void *arg)
             }
             prev_go = cmd.go;
 
-            if (fault_reason != FAULT_NONE) {
-                fault_recover(&cmd, &imu);
+            /* Research mode: direct wheel torque, bypasses balance + fault. */
+            if (manual_ticks > 0) {
+                if (!manual_armed) {
+                    motor_foc_enable_torque();
+                    manual_armed = true;
+                }
+                motor_foc_set_target(MOTOR_LEFT, manual_target);
+                motor_foc_set_target(MOTOR_RIGHT, manual_target);
                 leg_loop(&imu, &cmd);
+                int remaining = manual_ticks - 1;
+                manual_ticks = remaining;
+                if (remaining == 0) {
+                    motor_foc_stop();
+                    manual_armed = false;
+                }
+                prev_dir = cmd.dir;
+                prev_joy_x = cmd.joy_x;
+                prev_joy_y = cmd.joy_y;
+                motor_foc_step();
+                vTaskDelayUntil(&last_wake, 1);
+                continue;
+            }
+
+            if (fault_reason != FAULT_NONE) {
+                LQR_angle = imu.angle_y;
+                if (getup_request && fault_reason == FAULT_ATTITUDE) {
+                    getup_request = 0;
+                    getup_state = 1;
+                    getup_ticks = 0;
+                    motor_foc_enable_torque();
+                }
+                if (getup_state == 1) {
+                    /* Drive the wheels toward the side that lifts the chassis
+                     * back over the axle; release near upright. */
+                    const float dir = (LQR_angle > 0.0f) ? 1.0f : -1.0f;
+                    const float t = (float)getup_sign * dir * getup_torque;
+                    motor_foc_set_target(MOTOR_LEFT, t);
+                    motor_foc_set_target(MOTOR_RIGHT, t);
+                    leg_loop(&imu, &cmd);
+                    int ticks = getup_ticks + 1;
+                    getup_ticks = ticks;
+                    if (fabsf(LQR_angle) < getup_release_deg || ticks > 3000) {
+                        getup_state = 0;
+                        getup_ticks = 0;
+                        reset_pids();
+                        arm_request = true;
+                        go_auto_latch = false;
+                        fault_reason = FAULT_NONE;
+                        robot_control_set_go(true);
+                        robot_state_set(ROBOT_STATE_RUNNING);
+                        ESP_LOGI("robot_control", "get-up released at %.1f deg",
+                                 LQR_angle);
+                    }
+                } else {
+                    fault_recover(&cmd, &imu);
+                    leg_loop(&imu, &cmd);
+                }
+                getup_state_pub = getup_state;
             } else {
                 motor_foc_get_feedback(MOTOR_LEFT, &left);
                 motor_foc_get_feedback(MOTOR_RIGHT, &right);

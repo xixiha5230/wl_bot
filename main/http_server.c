@@ -5,6 +5,7 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "motor_foc.h"
 #include "ota.h"
 #include "robot_control.h"
 #include "robot_state.h"
@@ -63,6 +64,7 @@ static esp_err_t status_handler(httpd_req_t *request)
              "\"zero\":%.2f,\"yaw_mode\":%d,\"roll_mode\":%d,\"rb\":%.2f,\"faultdeg\":%.1f,"
              "\"amag\":%.2f,\"air\":%d,\"airth\":%.2f,\"airscale\":%.2f,"
              "\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,"
+             "\"mt\":%d,\"mmode\":%d,\"malign\":%d,\"gstate\":%d,"
              "\"angle_pp\":%.2f,\"ta\":%.2f,\"tg\":%.2f,\"td\":%.2f,\"ts\":%.2f,"
              "\"leg_add\":%.1f,\"yaw\":%.1f,\"yaw_out\":%.2f,\"roll\":%.2f,"
              "\"vl\":%.2f,\"vr\":%.2f,\"gz\":%.2f,\"uptime\":%d,"
@@ -78,6 +80,8 @@ static esp_err_t status_handler(httpd_req_t *request)
              robot_control_accel_mag(), robot_control_airborne(),
              robot_control_get_air_thresh(), robot_control_get_air_scale(),
              ax, ay, az,
+             robot_control_manual_ticks(), (int)motor_foc_get_mode(),
+             motor_foc_is_aligned() ? 1 : 0, robot_control_getup_state(),
              robot_control_angle_pp(), ta, tg, td, ts,
              robot_control_leg_add(), robot_control_yaw_total(),
              robot_control_yaw_output(), robot_control_roll_angle(),
@@ -148,6 +152,47 @@ static esp_err_t set_handler(httpd_req_t *request)
         robot_control_set_air(robot_control_get_air_thresh(), sc);
         snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
                  "airscale=%.2f ", robot_control_get_air_scale());
+    }
+    /* Research: /api/set?wdrive=<torque>&wms=<ms> drives both wheels directly. */
+    if (httpd_query_key_value(query, "wdrive", value, sizeof(value)) == ESP_OK) {
+        float target = strtof(value, NULL);
+        int ms = 300;
+        if (httpd_query_key_value(query, "wms", value, sizeof(value)) == ESP_OK) {
+            ms = atoi(value);
+        }
+        robot_control_manual_drive(target, ms);
+        snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                 "wdrive=%.2f for %dms ", target, ms);
+    }
+    /* Self-right: ?getup=1 starts, plus gtorque / grelease / gsign params. */
+    if (httpd_query_key_value(query, "getup", value, sizeof(value)) == ESP_OK) {
+        robot_control_set_getup(atoi(value) != 0);
+        snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                 "getup=%d ", atoi(value));
+    }
+    {
+        bool any = false;
+        float torque = robot_control_getup_torque();
+        float release = robot_control_getup_release();
+        int sign = robot_control_getup_sign();
+        if (httpd_query_key_value(query, "gtorque", value, sizeof(value)) == ESP_OK) {
+            torque = strtof(value, NULL);
+            any = true;
+        }
+        if (httpd_query_key_value(query, "grelease", value, sizeof(value)) == ESP_OK) {
+            release = strtof(value, NULL);
+            any = true;
+        }
+        if (httpd_query_key_value(query, "gsign", value, sizeof(value)) == ESP_OK) {
+            sign = atoi(value);
+            any = true;
+        }
+        if (any) {
+            robot_control_set_getup_params(torque, release, sign);
+            snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                     "getup t=%.1f r=%.0f s=%d ",
+                     robot_control_getup_torque(), release, sign);
+        }
     }
     if (httpd_query_key_value(query, "go", value, sizeof(value)) == ESP_OK) {
         int v = atoi(value);
