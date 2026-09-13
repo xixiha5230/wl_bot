@@ -43,8 +43,8 @@ struct StabPID : public PIDController {
 };
 
 static StabPID pid_angle(1.1f, 0.0f, 0.0f, 100000.0f, 8.0f);
-static StabPID pid_gyro(0.06f, 0.0f, 0.0f, 100000.0f, 8.0f);
-static StabPID pid_distance(0.2f, 0.0f, 0.0f, 100000.0f, 8.0f);
+static StabPID pid_gyro(0.09f, 0.0f, 0.0f, 100000.0f, 8.0f);
+static StabPID pid_distance(0.4f, 0.0f, 0.0f, 100000.0f, 8.0f);
 static StabPID pid_speed(0.4f, 0.0f, 0.0f, 100000.0f, 8.0f);
 static StabPID pid_yaw_angle(1.0f, 0.0f, 0.0f, 100000.0f, 8.0f);
 static StabPID pid_yaw_gyro(0.04f, 0.0f, 0.0f, 100000.0f, 8.0f);
@@ -121,6 +121,18 @@ static volatile float angle_pp;
 static int yaw_mode = 1;   /* 1 = normal, -1 = inverted, 0 = disabled */
 static bool arm_request;   /* reset distance zero/PIDs when go turns on */
 
+/* Runtime-tunable jump profile (defaults mirror LEG_JUMP_* in robot_config.h).
+ * Written over HTTP/console, read by the control task. */
+static int jump_height = LEG_JUMP_HEIGHT;
+static int jump_land_height = LEG_JUMP_LAND_HEIGHT;
+static int jump_speed = LEG_JUMP_SPEED;
+static int jump_acc = LEG_JUMP_ACC;
+static int jump_land_ticks = 32;
+/* Gait: crouch first to load the legs, then slam up, then retract to catch.
+ * The crouch stays just above the chassis-to-wheel clearance (h32 touches). */
+static int jump_crouch = 36;
+static int jump_crouch_ticks = 150;
+
 /* Attitude/battery fault latch: motors are disabled and stay off until the
  * operator commands go=1 again once the fault condition has cleared. */
 typedef enum {
@@ -135,6 +147,8 @@ static int recover_ticks;
 static bool control_started;
 static QueueHandle_t leg_queue;
 static uint32_t control_loop_count;
+static int16_t last_leg_target1;
+static int16_t last_leg_target2;
 
 typedef struct {
     int16_t position1;
@@ -317,6 +331,61 @@ int robot_control_get_yaw_mode(void)
     return yaw_mode;
 }
 
+void robot_control_set_jump_profile(int height, int land_height, int speed,
+                                    int acc, int land_ticks)
+{
+    if (height >= LEG_HEIGHT_MIN && height <= LEG_HEIGHT_MAX) {
+        jump_height = height;
+    }
+    if (land_height >= LEG_HEIGHT_MIN && land_height <= LEG_HEIGHT_MAX) {
+        jump_land_height = land_height;
+    }
+    if (speed >= 0 && speed <= 2000) {
+        jump_speed = speed;
+    }
+    if (acc >= 0 && acc <= 100) {
+        jump_acc = acc;
+    }
+    if (land_ticks > 5 && land_ticks < 200) {
+        jump_land_ticks = land_ticks;
+    }
+}
+
+void robot_control_get_jump_profile(int *height, int *land_height, int *speed,
+                                    int *acc, int *land_ticks)
+{
+    if (height) *height = jump_height;
+    if (land_height) *land_height = jump_land_height;
+    if (speed) *speed = jump_speed;
+    if (acc) *acc = jump_acc;
+    if (land_ticks) *land_ticks = jump_land_ticks;
+}
+
+void robot_control_set_jump_crouch(int height, int ticks)
+{
+    if (height >= LEG_HEIGHT_MIN && height <= LEG_HEIGHT_MAX) {
+        jump_crouch = height;
+    }
+    if (ticks > 10 && ticks < 400) {
+        jump_crouch_ticks = ticks;
+    }
+}
+
+void robot_control_get_jump_crouch(int *height, int *ticks)
+{
+    if (height) *height = jump_crouch;
+    if (ticks) *ticks = jump_crouch_ticks;
+}
+
+/* Last leg positions commanded to the servos and the jump state machine flag,
+ * for diagnosing whether a jump command reaches the servos. */
+void robot_control_get_leg_diag(int16_t *target1, int16_t *target2, int *jump_state)
+{
+    if (target1) *target1 = last_leg_target1;
+    if (target2) *target2 = last_leg_target2;
+    if (jump_state) *jump_state = jump_flag;
+}
+
 /* PIDController::clear_error() only resets the error history; the integral
  * accumulator (integral_prev) needs reset() as well, otherwise pid_lqr_u can
  * stay wound up after a fault/fall. */
@@ -342,6 +411,8 @@ static void leg_output(int16_t position1, int16_t position2, uint16_t speed, uin
     if (leg_queue == NULL) {
         return;
     }
+    last_leg_target1 = position1;
+    last_leg_target2 = position2;
     const leg_pose_t pose = {
         .position1 = position1,
         .position2 = position2,
@@ -497,30 +568,40 @@ static int16_t clamp_position(float value, int16_t low, int16_t high)
     return (int16_t)value;
 }
 
+static void jump_legs_to(int height, int speed, int acc)
+{
+    int16_t p1 = (int16_t)(LEG_POSITION_CENTER + LEG_MOUNT_OFFSET +
+                           LEG_HEIGHT_STEP * (height - LEG_HEIGHT_MIN));
+    int16_t p2 = (int16_t)(LEG_POSITION_CENTER - LEG_MOUNT_OFFSET -
+                           LEG_HEIGHT_STEP * (height - LEG_HEIGHT_MIN));
+    leg_output(p1, p2, speed, acc);
+}
+
+/* Three-phase jump gait, one command per control tick (~500 Hz):
+ *   1. crouch to jump_crouch at max speed, hold jump_crouch_ticks to settle,
+ *   2. slam up to jump_height (launch),
+ *   3. after jump_land_ticks retract to jump_land_height to catch the landing. */
 static void jump_loop(const robot_command_t *cmd)
 {
     if (prev_dir == ROBOT_JUMP && cmd->dir == ROBOT_STOP && jump_flag == 0) {
-        int16_t p1 = (int16_t)(LEG_POSITION_CENTER + LEG_MOUNT_OFFSET +
-                               LEG_HEIGHT_STEP * (LEG_JUMP_HEIGHT - LEG_HEIGHT_MIN));
-        int16_t p2 = (int16_t)(LEG_POSITION_CENTER - LEG_MOUNT_OFFSET -
-                               LEG_HEIGHT_STEP * (LEG_JUMP_HEIGHT - LEG_HEIGHT_MIN));
-        leg_output(p1, p2, LEG_JUMP_SPEED, LEG_JUMP_ACC);
         jump_flag = 1;
     }
+    if (jump_flag == 0) {
+        return;
+    }
+    jump_flag++;
 
-    if (jump_flag > 0) {
-        jump_flag++;
-        if (jump_flag > 30 && jump_flag < 35) {
-            int16_t p1 = (int16_t)(LEG_POSITION_CENTER + LEG_MOUNT_OFFSET +
-                                   LEG_HEIGHT_STEP * (LEG_JUMP_LAND_HEIGHT - LEG_HEIGHT_MIN));
-            int16_t p2 = (int16_t)(LEG_POSITION_CENTER - LEG_MOUNT_OFFSET -
-                                   LEG_HEIGHT_STEP * (LEG_JUMP_LAND_HEIGHT - LEG_HEIGHT_MIN));
-            leg_output(p1, p2, LEG_JUMP_SPEED, LEG_JUMP_ACC);
-            jump_flag = 40;
-        }
-        if (jump_flag > 200) {
-            jump_flag = 0;
-        }
+    const int slam_tick = jump_crouch_ticks + 2;
+    const int land_tick = slam_tick + jump_land_ticks;
+    if (jump_flag == 2) {
+        jump_legs_to(jump_crouch, 0, 0);
+    } else if (jump_flag == slam_tick) {
+        jump_legs_to(jump_height, jump_speed, jump_acc);
+    } else if (jump_flag == land_tick) {
+        jump_legs_to(jump_land_height, jump_speed, jump_acc);
+    }
+    if (jump_flag > land_tick + 160) {
+        jump_flag = 0;
     }
 }
 

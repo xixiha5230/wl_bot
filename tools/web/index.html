@@ -35,6 +35,17 @@
            linear-gradient(#2b313a, #2b313a) center/1px 100% no-repeat,
            linear-gradient(#2b313a, #2b313a) center/100% 1px no-repeat; opacity: .5; }
   .muted { color: #6f7b8a; font-size: 12px; }
+  .batt { display: flex; align-items: center; gap: 10px; margin: 4px 0 10px; }
+  .batt .case { position: relative; width: 64px; height: 26px; border: 2px solid #6f7b8a;
+                border-radius: 6px; padding: 3px; }
+  .batt .case::after { content: ""; position: absolute; right: -7px; top: 6px;
+                       width: 5px; height: 10px; background: #6f7b8a; border-radius: 0 2px 2px 0; }
+  .batt .fill { height: 100%; width: 0%; background: #1f8a4c; border-radius: 3px;
+                transition: width .4s, background .4s; }
+  .batt.warn .fill { background: #d8a12e; }
+  .batt.low  .fill { background: #b3382f; }
+  .batt .val { font-family: ui-monospace, monospace; font-size: 13px; }
+  .batt.low .val { color: #e05a4f; }
 </style>
 </head>
 <body>
@@ -68,6 +79,10 @@
   <p class="muted">x = turn (yaw), y = forward/back speed.</p>
 
   <h2 style="margin-top:16px">Live status</h2>
+  <div class="batt" id="batt">
+    <div class="case"><div class="fill" id="battfill"></div></div>
+    <div class="val"><span id="battv">--</span> <span class="muted" id="battp"></span></div>
+  </div>
   <div id="status" class="status">--</div>
 </div>
 
@@ -101,6 +116,17 @@
   <label style="margin-top:12px">Gyro re-zero (hold robot still)</label>
   <button id="gcal" style="width:100%">Recalibrate gyro</button>
 
+  <h2 style="margin-top:16px">Jump tune</h2>
+  <label>h(32-80) land spd(0=max) acc tick</label>
+  <div class="row">
+    <input id="jh" placeholder="h"><input id="jl" placeholder="land">
+    <input id="js" placeholder="spd"><input id="jacc" placeholder="acc">
+    <input id="jt" placeholder="tick">
+  </div>
+  <label style="margin-top:6px">Crouch h + hold ticks</label>
+  <div class="row"><input id="jc" placeholder="crouch"><input id="jct" placeholder="ctick"></div>
+  <button id="jumpapply" class="primary" style="margin-top:6px;width:100%">Apply jump profile</button>
+
   <h2 style="margin-top:16px">OTA</h2>
   <label>Firmware URL</label>
   <input id="otaurl" placeholder="http://192.168.1.193:8000/micro_wheeled_leg_bot.bin">
@@ -132,14 +158,23 @@ $("connect").onclick = () => {
 async function refresh() {
   try {
     const d = await (await api("/api/status")).json();
+    const v = d.battery, FULL = 8.4, LOW = 6.8, WARN = 7.6;
+    const pct = Math.max(0, Math.min(100, (v - LOW) / (FULL - LOW) * 100));
+    $("battv").textContent = `${v.toFixed(2)} V`;
+    $("battp").textContent = `${pct.toFixed(0)}%`;
+    $("battfill").style.width = `${Math.max(4, pct)}%`;
+    const b = $("batt");
+    b.classList.toggle("low", v <= LOW + 0.4);
+    b.classList.toggle("warn", v > LOW + 0.4 && v <= WARN);
     $("status").textContent =
-      `state    ${d.state}\nbattery  ${d.battery.toFixed(2)} V\n` +
+      `state    ${d.state}\nbattery  ${v.toFixed(2)} V\n` +
       `go       ${d.go}   fault ${d.fault}\n` +
       `angle    ${d.lqr_angle.toFixed(2)} deg\n` +
       `lqr_u    ${d.lqr_u.toFixed(3)}\n` +
       `pp       ${d.angle_pp.toFixed(2)}   leg_add ${d.leg_add.toFixed(1)}\n` +
       `zero     ${d.zero.toFixed(2)}\n` +
-      `terms    a=${d.ta} g=${d.tg} d=${d.td} s=${d.ts}`;
+      `terms    a=${d.ta} g=${d.tg} d=${d.td} s=${d.ts}\n` +
+      `jump     h=${d.jh} l=${d.jl} s=${d.js} a=${d.jacc} t=${d.jlt} c=${d.jc} ct=${d.jct}`;
     state.stable = d.go;
     $("go").classList.toggle("on", !!d.go);
     $("height").value = d.height; $("heightv").textContent = d.height;
@@ -152,7 +187,14 @@ function setGo(on) { api(`/api/set?go=${on ? 1 : 0}`); state.stable = on ? 1 : 0
 
 $("height").oninput = () => { state.height = +$("height").value; $("heightv").textContent = state.height; send(); };
 $("roll").oninput = () => { state.roll = +$("roll").value; $("rollv").textContent = state.roll; send(); };
-document.querySelectorAll("[data-dir]").forEach(b => b.onclick = () => { state.dir = b.dataset.dir; send(); });
+document.querySelectorAll("[data-dir]").forEach(b => b.onclick = () => {
+  state.dir = b.dataset.dir; send();
+  if (b.dataset.dir === "jump") {
+    /* The firmware fires the jump on the jump -> stop edge, so make the
+     * button momentary: revert to stop right after the press. */
+    setTimeout(() => { if (state.dir === "jump") { state.dir = "stop"; send(); } }, 400);
+  }
+});
 
 const pad = $("pad"), knob = $("knob");
 function joy(e) {
@@ -179,6 +221,12 @@ $("pidapply").onclick = () => {
 };
 $("lpfapply").onclick = () => api(`/api/set?lpf=${$("lpfname").value}&tf=${$("lpftf").value || 0}`);
 $("zeroapply").onclick = () => api(`/api/set?zero=${$("zero").value}`);
+$("jumpapply").onclick = () => {
+  const pairs = [["jh","jh"],["jl","jl"],["js","js"],["jacc","jacc"],["jlt","jt"],["jc","jc"],["jct","jct"]]
+    .filter(([, id]) => $(id).value !== "")
+    .map(([k, id]) => `${k}=${$(id).value}`).join("&");
+  if (pairs) api(`/api/set?${pairs}`);
+};
 $("yawon").onclick = () => api("/api/set?yaw=1");
 $("yawoff").onclick = () => api("/api/set?yaw=0");
 $("gcal").onclick = () => { if (confirm("Keep the robot perfectly still. Recalibrate gyro now?"))

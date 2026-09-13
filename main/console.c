@@ -339,6 +339,23 @@ static int cmd_yaw(int argc, char **argv)
     return 0;
 }
 
+static int cmd_jump(int argc, char **argv)
+{
+    int h, l, s, a, t;
+    robot_control_get_jump_profile(&h, &l, &s, &a, &t);
+    if (argc >= 2 && argc < 6) {
+        printf("usage: jump [h land speed acc ticks] (no args = show)\n");
+        return 1;
+    }
+    if (argc >= 6) {
+        robot_control_set_jump_profile(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]),
+                                       atoi(argv[4]), atoi(argv[5]));
+        robot_control_get_jump_profile(&h, &l, &s, &a, &t);
+    }
+    printf("jump h=%d land=%d speed=%d acc=%d ticks=%d\n", h, l, s, a, t);
+    return 0;
+}
+
 static int cmd_rc(int argc, char **argv)
 {
     (void)argc;
@@ -571,6 +588,7 @@ static esp_err_t register_commands(void)
         {.command = "height", .help = "height <32..80>: leg height", .func = cmd_height},
         {.command = "joy", .help = "joy <x> <y>: virtual joystick", .func = cmd_joy},
         {.command = "dir", .help = "dir <0..5>: motion direction (incl. jump)", .func = cmd_dir},
+        {.command = "jump", .help = "jump [h land speed acc ticks]: show/set jump profile", .func = cmd_jump},
         {.command = "rc", .help = "print control state", .func = cmd_rc},
         {.command = "pid", .help = "pid [name P I [D] [limit]]: show/set gains", .func = cmd_pid},
         {.command = "lpf", .help = "lpf [name Tf]: show/set low-pass filters", .func = cmd_lpf},

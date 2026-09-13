@@ -51,6 +51,19 @@ robot_command_t robot_control_get_command(void);
 void robot_control_set_yaw_mode(int mode);
 int robot_control_get_yaw_mode(void);
 
+/* Jump profile, tunable at runtime (defaults from LEG_JUMP_* in robot_config.h):
+ *   height/land_height in mm, speed 0..2000 (0 = max), acc 0..100,
+ *   land_ticks = control ticks (~1/500 s) after launch before the land command. */
+void robot_control_set_jump_profile(int height, int land_height, int speed,
+                                    int acc, int land_ticks);
+void robot_control_get_jump_profile(int *height, int *land_height, int *speed,
+                                    int *acc, int *land_ticks);
+/* Crouch phase of the jump gait: height and hold time in control ticks. */
+void robot_control_set_jump_crouch(int height, int ticks);
+void robot_control_get_jump_crouch(int *height, int *ticks);
+/* Diagnostic: last leg positions sent to servos, and jump state (0/idle). */
+void robot_control_get_leg_diag(int16_t *target1, int16_t *target2, int *jump_state);
+
 /* Runtime tuning, mirroring the reference firmware's SimpleFOC Commander.
  * Names match the original A-L mappings (angle, gyro, distance, speed,
  * yaw_angle, yaw_gyro, lqr_u, zeropoint, roll_angle, joyy, zeropoint_lpf, roll). */

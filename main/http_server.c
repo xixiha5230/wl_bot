@@ -9,6 +9,7 @@
 #include "robot_control.h"
 #include "robot_state.h"
 #include "sensors.h"
+#include "servo_sts.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,7 +46,14 @@ static esp_err_t status_handler(httpd_req_t *request)
     robot_command_t cmd = robot_control_get_command();
     float ta, tg, td, ts;
     robot_control_get_terms(&ta, &tg, &td, &ts);
-    char response[512];
+    char response[576];
+    int jh, jl, js, ja, jt;
+    int jc, jct;
+    int16_t leg1, leg2;
+    int jf;
+    robot_control_get_jump_profile(&jh, &jl, &js, &ja, &jt);
+    robot_control_get_jump_crouch(&jc, &jct);
+    robot_control_get_leg_diag(&leg1, &leg2, &jf);
     snprintf(response, sizeof(response),
              "{\"state\":\"%s\",\"battery\":%.2f,\"go\":%d,\"height\":%d,"
              "\"lqr_angle\":%.2f,\"lqr_u\":%.3f,\"fault\":%d,"
@@ -53,7 +61,9 @@ static esp_err_t status_handler(httpd_req_t *request)
              "\"zero\":%.2f,\"yaw_mode\":%d,"
              "\"angle_pp\":%.2f,\"ta\":%.2f,\"tg\":%.2f,\"td\":%.2f,\"ts\":%.2f,"
              "\"leg_add\":%.1f,\"yaw\":%.1f,\"yaw_out\":%.2f,\"roll\":%.2f,"
-             "\"vl\":%.2f,\"vr\":%.2f,\"gz\":%.2f,\"uptime\":%d}",
+             "\"vl\":%.2f,\"vr\":%.2f,\"gz\":%.2f,\"uptime\":%d,"
+             "\"jh\":%d,\"jl\":%d,\"js\":%d,\"jacc\":%d,\"jlt\":%d,"
+             "\"jc\":%d,\"jct\":%d,\"lt1\":%d,\"lt2\":%d,\"jf\":%d}",
              robot_state_name(robot_state_get()), board_battery_voltage(),
              cmd.go ? 1 : 0, cmd.height, robot_control_lqr_angle(),
              robot_control_lqr_u(), robot_control_faulted() ? 1 : 0,
@@ -63,7 +73,8 @@ static esp_err_t status_handler(httpd_req_t *request)
              robot_control_leg_add(), robot_control_yaw_total(),
              robot_control_yaw_output(), robot_control_roll_angle(),
              robot_control_left_velocity(), robot_control_right_velocity(),
-             robot_control_gyro_z(), (int)(esp_timer_get_time() / 1000000));
+             robot_control_gyro_z(), (int)(esp_timer_get_time() / 1000000),
+             jh, jl, js, ja, jt, jc, jct, leg1, leg2, jf);
     set_cors(request);
     httpd_resp_set_type(request, "application/json");
     return httpd_resp_send(request, response, HTTPD_RESP_USE_STRLEN);
@@ -105,6 +116,44 @@ static esp_err_t set_handler(httpd_req_t *request)
         esp_err_t status = sensors_calibrate_gyro();
         snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
                  "gcal=%s ", status == ESP_OK ? "ok" : "fail");
+    }
+
+    /* Jump profile tuning: jh=height jl=land_height js=speed jacc=acc jlt=land_ticks
+     * plus the crouch phase: jc=crouch_height jct=crouch_ticks */
+    int jparams[5];
+    bool any_jump = false;
+    for (int idx = 0; idx < 5; ++idx) {
+        jparams[idx] = -1;   /* -1 = key absent, so explicit 0 values apply */
+    }
+    const char *const jump_keys[] = {"jh", "jl", "js", "jacc", "jlt"};
+    for (int idx = 0; idx < 5; ++idx) {
+        if (httpd_query_key_value(query, jump_keys[idx], value, sizeof(value)) == ESP_OK) {
+            jparams[idx] = atoi(value);
+            any_jump = true;
+        }
+    }
+    int jc = -1, jct = -1;
+    if (httpd_query_key_value(query, "jc", value, sizeof(value)) == ESP_OK) {
+        jc = atoi(value);
+        any_jump = true;
+    }
+    if (httpd_query_key_value(query, "jct", value, sizeof(value)) == ESP_OK) {
+        jct = atoi(value);
+        any_jump = true;
+    }
+    if (any_jump) {
+        int h, l, s, a, t;
+        robot_control_get_jump_profile(&h, &l, &s, &a, &t);
+        if (jparams[0] >= 0) h = jparams[0];
+        if (jparams[1] >= 0) l = jparams[1];
+        if (jparams[2] >= 0) s = jparams[2];
+        if (jparams[3] >= 0) a = jparams[3];
+        if (jparams[4] >= 0) t = jparams[4];
+        robot_control_set_jump_profile(h, l, s, a, t);
+        robot_control_set_jump_crouch(jc, jct);
+        robot_control_get_jump_crouch(&jc, &jct);
+        snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                 "jump h=%d l=%d s=%d a=%d t=%d c=%d ct=%d ", h, l, s, a, t, jc, jct);
     }
 
     char name[24];
@@ -185,6 +234,22 @@ static esp_err_t ota_handler(httpd_req_t *request)
     return httpd_resp_send(request, "ota started\n", HTTPD_RESP_USE_STRLEN);
 }
 
+/* Live leg-servo positions, for jump tuning. Reads the STS bus on demand. */
+static esp_err_t servo_handler(httpd_req_t *request)
+{
+    char response[128];
+    servo_sts_feedback_t f1, f2;
+    esp_err_t e1 = servo_sts_read_feedback(1, &f1);
+    esp_err_t e2 = servo_sts_read_feedback(2, &f2);
+    snprintf(response, sizeof(response),
+             "{\"s1\":%d,\"s2\":%d,\"e1\":%d,\"e2\":%d}",
+             e1 == ESP_OK ? f1.position : 0,
+             e2 == ESP_OK ? f2.position : 0, (int)e1, (int)e2);
+    set_cors(request);
+    httpd_resp_set_type(request, "application/json");
+    return httpd_resp_send(request, response, HTTPD_RESP_USE_STRLEN);
+}
+
 static esp_err_t options_handler(httpd_req_t *request)
 {
     set_cors(request);
@@ -200,6 +265,7 @@ esp_err_t http_server_start(void)
     httpd_uri_t root = {.uri = "/", .method = HTTP_GET, .handler = root_handler};
     httpd_uri_t status = {.uri = "/api/status", .method = HTTP_GET, .handler = status_handler};
     httpd_uri_t set = {.uri = "/api/set", .method = HTTP_GET, .handler = set_handler};
+    httpd_uri_t servo = {.uri = "/api/servo", .method = HTTP_GET, .handler = servo_handler};
     httpd_uri_t ota = {.uri = "/api/ota", .method = HTTP_POST, .handler = ota_handler};
     httpd_uri_t options = {.uri = "/api/*", .method = HTTP_OPTIONS, .handler = options_handler};
 
@@ -207,6 +273,7 @@ esp_err_t http_server_start(void)
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &root), TAG, "root handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &status), TAG, "status handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &set), TAG, "set handler failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &servo), TAG, "servo handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &ota), TAG, "ota handler failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &options), TAG, "options handler failed");
     ESP_LOGI(TAG, "HTTP server listening on port %d", config.server_port);
