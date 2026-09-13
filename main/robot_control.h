@@ -77,6 +77,13 @@ void robot_control_manual_drive(float target, int ms);
 bool robot_control_manual_active(void);
 int robot_control_manual_ticks(void);
 
+/* Multi-phase wheel sequence (target in LQR_u units, duration in ms). */
+void robot_control_wheel_sequence(const float *targets, const int *durations_ms, int count);
+int robot_control_wheel_seq_len(void);
+/* When armed, a running sequence hands over to the balance loop as soon as
+ * the pitch comes within the get-up release angle. */
+void robot_control_wheel_sequence_arm(bool arm);
+
 /* Self-right: drive the wheels toward upright while attitude-faulted, then
  * hand over to the balance loop. [on]=1 starts, 0 cancels; params are torque
  * (wheel units), release angle (deg) and direction sign. */

@@ -157,6 +157,18 @@ static volatile float accel_z_last;
 static volatile float manual_target;
 static volatile int manual_ticks;
 static volatile bool manual_armed;
+/* Timed wheel-torque sequence for self-right experiments (e.g. rock back then
+ * forward). Each phase holds `target` for `ticks` control loops. */
+#define WHEEL_SEQ_MAX 8
+typedef struct {
+    float target;
+    int ticks;
+} wheel_phase_t;
+static wheel_phase_t wheel_seq[WHEEL_SEQ_MAX];
+static volatile int wheel_seq_len;
+static volatile int wheel_seq_idx;
+static volatile int wheel_seq_left;
+static volatile bool wheel_seq_arm;   /* hand over to balance when near upright */
 /* Self-right state machine (research). When triggered while attitude-faulted,
  * drives the wheels toward the side that reduces |pitch| and hands over to the
  * balance loop once the chassis is near upright. */
@@ -459,6 +471,41 @@ void robot_control_manual_drive(float target, int ms)
     if (ms > 3000) ms = 3000;
     manual_target = target;
     manual_ticks = ms;   /* control loop runs at ~1 kHz, so 1 ms ~ 1 tick */
+}
+
+/* Start a multi-phase wheel sequence; replaces any running one. */
+void robot_control_wheel_sequence(const float *targets, const int *durations_ms, int count)
+{
+    if (count <= 0 || targets == NULL || durations_ms == NULL) {
+        wheel_seq_len = 0;
+        return;
+    }
+    if (count > WHEEL_SEQ_MAX) {
+        count = WHEEL_SEQ_MAX;
+    }
+    for (int i = 0; i < count; ++i) {
+        float t = targets[i];
+        if (t < -12.0f) t = -12.0f;
+        if (t > 12.0f) t = 12.0f;
+        int ms = durations_ms[i];
+        if (ms < 0) ms = 0;
+        if (ms > 3000) ms = 3000;
+        wheel_seq[i].target = t;
+        wheel_seq[i].ticks = ms;
+    }
+    wheel_seq_len = count;
+    wheel_seq_idx = 0;
+    wheel_seq_left = wheel_seq[0].ticks;
+}
+
+int robot_control_wheel_seq_len(void)
+{
+    return wheel_seq_len;
+}
+
+void robot_control_wheel_sequence_arm(bool arm)
+{
+    wheel_seq_arm = arm;
 }
 
 bool robot_control_manual_active(void)
@@ -1055,21 +1102,59 @@ static void control_task(void *arg)
             }
             prev_go = cmd.go;
 
-            /* Research mode: direct wheel torque, bypasses balance + fault. */
-            if (manual_ticks > 0) {
+            /* Research mode: direct wheel torque (sequence or single pulse),
+             * bypasses balancing and fault handling. */
+            if (wheel_seq_len > 0 || manual_ticks > 0) {
                 if (!manual_armed) {
                     motor_foc_enable_torque();
                     manual_armed = true;
                 }
-                motor_foc_set_target(MOTOR_LEFT, manual_target);
-                motor_foc_set_target(MOTOR_RIGHT, manual_target);
-                leg_loop(&imu, &cmd);
-                int remaining = manual_ticks - 1;
-                manual_ticks = remaining;
-                if (remaining == 0) {
+                LQR_angle = imu.angle_y;
+                const bool release_now = wheel_seq_arm &&
+                    fabsf(LQR_angle) < getup_release_deg;
+                float target;
+                if (release_now) {
+                    target = 0.0f;
+                    wheel_seq_len = 0;
+                    manual_ticks = 0;
+                    wheel_seq_arm = false;
                     motor_foc_stop();
                     manual_armed = false;
+                    reset_pids();
+                    arm_request = true;
+                    go_auto_latch = false;
+                    fault_reason = FAULT_NONE;
+                    robot_control_set_go(true);
+                    robot_state_set(ROBOT_STATE_RUNNING);
+                    ESP_LOGI("robot_control", "rock get-up handed over at %.1f deg",
+                             LQR_angle);
+                } else if (wheel_seq_len > 0) {
+                    target = wheel_seq[wheel_seq_idx].target;
+                    int left = wheel_seq_left - 1;
+                    wheel_seq_left = left;
+                    if (left <= 0) {
+                        int next = wheel_seq_idx + 1;
+                        if (next >= wheel_seq_len) {
+                            wheel_seq_len = 0;
+                            motor_foc_stop();
+                            manual_armed = false;
+                        } else {
+                            wheel_seq_idx = next;
+                            wheel_seq_left = wheel_seq[next].ticks;
+                        }
+                    }
+                } else {
+                    target = manual_target;
+                    int left = manual_ticks - 1;
+                    manual_ticks = left;
+                    if (left <= 0) {
+                        motor_foc_stop();
+                        manual_armed = false;
+                    }
                 }
+                motor_foc_set_target(MOTOR_LEFT, target);
+                motor_foc_set_target(MOTOR_RIGHT, target);
+                leg_loop(&imu, &cmd);
                 prev_dir = cmd.dir;
                 prev_joy_x = cmd.joy_x;
                 prev_joy_y = cmd.joy_y;

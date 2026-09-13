@@ -165,6 +165,50 @@ static esp_err_t set_handler(httpd_req_t *request)
         snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
                  "wdrive=%.2f for %dms ", target, ms);
     }
+    /* Leg height, e.g. /api/set?h=32 (32..80). */
+    if (httpd_query_key_value(query, "h", value, sizeof(value)) == ESP_OK) {
+        int h = atoi(value);
+        robot_control_set_height(h);
+        snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                 "h=%d ", h);
+    }
+    /* Multi-phase wheel sequence: ?seq=v1:ms1,v2:ms2,... (up to 8 phases). */
+    {
+        char seq[160];
+        if (httpd_query_key_value(query, "seq", seq, sizeof(seq)) == ESP_OK) {
+            float targets[8];
+            int durs[8];
+            int n = 0;
+            char *p = seq;
+            while (p != NULL && *p != '\0' && n < 8) {
+                char *comma = strchr(p, ',');
+                if (comma != NULL) {
+                    *comma = '\0';
+                }
+                char *colon = strchr(p, ':');
+                if (colon != NULL) {
+                    *colon = '\0';
+                    targets[n] = strtof(p, NULL);
+                    durs[n] = atoi(colon + 1);
+                    n++;
+                }
+                if (comma == NULL) {
+                    break;
+                }
+                p = comma + 1;
+            }
+            if (n > 0) {
+                robot_control_wheel_sequence(targets, durs, n);
+                snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                         "seq=%d phases ", n);
+            }
+            if (httpd_query_key_value(query, "arm", value, sizeof(value)) == ESP_OK) {
+                robot_control_wheel_sequence_arm(atoi(value) != 0);
+                snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                         "arm=%d ", atoi(value));
+            }
+        }
+    }
     /* Self-right: ?getup=1 starts, plus gtorque / grelease / gsign params. */
     if (httpd_query_key_value(query, "getup", value, sizeof(value)) == ESP_OK) {
         robot_control_set_getup(atoi(value) != 0);
