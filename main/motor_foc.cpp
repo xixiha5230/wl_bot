@@ -212,10 +212,13 @@ void motor_foc_step(void)
     right_target = target_right;
     portEXIT_CRITICAL(&foc_mux);
 
-    motor_left.loopFOC();
-    motor_right.loopFOC();
+    /* Set the target first, then update the sensor and apply the voltage in the
+     * same iteration. (loopFOC applies current_sp, so doing move() afterwards
+     * would delay the new torque by one control cycle.) */
     motor_left.move(mode == MOTOR_MODE_DISABLED ? 0.0f : left_target);
     motor_right.move(mode == MOTOR_MODE_DISABLED ? 0.0f : right_target);
+    motor_left.loopFOC();
+    motor_right.loopFOC();
 
     xSemaphoreGive(foc_mutex);
 }

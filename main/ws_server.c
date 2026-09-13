@@ -133,6 +133,8 @@ esp_err_t ws_server_start(void)
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 81;
+    /* Keep the WebSocket server off the real-time control core. */
+    config.core_id = 0;
     /* The control port must differ from the HTTP server's default 32768. */
     config.ctrl_port = 32769;
     config.max_open_sockets = 4;

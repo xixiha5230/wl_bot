@@ -82,11 +82,16 @@ void robot_control_set_angle_zeropoint(float degrees);
 float robot_control_get_angle_zeropoint(void);
 /* Effective balance zero after the height compensation (for display). */
 float robot_control_get_balance_zero(void);
+/* Peak-to-peak of lqr_angle over the last ~1 s window (jitter metric). */
+float robot_control_angle_pp(void);
 
 float robot_control_lqr_angle(void);
 float robot_control_lqr_u(void);
 float robot_control_yaw_output(void);
 float robot_control_yaw_total(void);
+float robot_control_left_velocity(void);
+float robot_control_right_velocity(void);
+float robot_control_gyro_z(void);
 /* Individual LQR term outputs, for tuning. */
 void robot_control_get_terms(float *angle, float *gyro, float *distance, float *speed);
 /* Leg roll compensation and the last IMU roll angle, for tuning. */

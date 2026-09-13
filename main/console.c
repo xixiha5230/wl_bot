@@ -6,6 +6,7 @@
 #include "esp_timer.h"
 #include "board.h"
 #include "motor_foc.h"
+#include "ota.h"
 #include "robot_config.h"
 #include "robot_control.h"
 #include "robot_state.h"
@@ -397,6 +398,16 @@ static int cmd_imu(int argc, char **argv)
     return 0;
 }
 
+static int cmd_gcal(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    printf("recalibrating gyro - keep the robot perfectly still...\n");
+    esp_err_t status = sensors_calibrate_gyro();
+    printf("gyro recalibration %s\n", status == ESP_OK ? "ok" : esp_err_to_name(status));
+    return status == ESP_OK ? 0 : 1;
+}
+
 static int cmd_rate(int argc, char **argv)
 {
     (void)argc;
@@ -523,6 +534,21 @@ static int cmd_bat(int argc, char **argv)
     return 0;
 }
 
+static int cmd_ota(int argc, char **argv)
+{
+    if (argc < 2) {
+        printf("usage: ota <http://host:port/image.bin>\n");
+        return 1;
+    }
+    esp_err_t status = ota_start_from_url(argv[1]);
+    if (status != ESP_OK) {
+        printf("ota start failed: %s\n", esp_err_to_name(status));
+        return 1;
+    }
+    printf("ota started; the robot will reboot when the transfer completes\n");
+    return 0;
+}
+
 static esp_err_t register_commands(void)
 {
     const esp_console_cmd_t commands[] = {
@@ -552,8 +578,10 @@ static esp_err_t register_commands(void)
         {.command = "jit", .help = "jit [sec]: measure high-rate jitter", .func = cmd_jit},
         {.command = "enc", .help = "read both AS5600 encoders", .func = cmd_enc},
         {.command = "imu", .help = "read accel/gyro/angle", .func = cmd_imu},
+        {.command = "gcal", .help = "re-zero the gyro (keep robot still)", .func = cmd_gcal},
         {.command = "rate", .help = "measure control/FOC loop rates", .func = cmd_rate},
         {.command = "bat", .help = "read battery voltage", .func = cmd_bat},
+        {.command = "ota", .help = "ota <url>: flash firmware over Wi-Fi", .func = cmd_ota},
         {.command = "stop", .help = "disable all servo torque", .func = cmd_stop},
     };
     for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); ++i) {
@@ -570,6 +598,7 @@ esp_err_t console_start(void)
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
     repl_config.prompt = "wlrobot>";
     repl_config.max_cmdline_length = 128;
+    repl_config.task_core_id = 0;   /* keep the control loop core free */
     esp_console_dev_uart_config_t uart_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
 
     ESP_RETURN_ON_ERROR(esp_console_new_repl_uart(&uart_config, &repl_config, &repl),

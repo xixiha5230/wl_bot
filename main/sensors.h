@@ -37,6 +37,10 @@ esp_err_t sensors_init(void);
 esp_err_t sensors_read_encoders(as5600_sample_t *left, as5600_sample_t *right);
 esp_err_t sensors_read_imu(mpu6050_sample_t *imu);
 
+/* Re-measure the gyro zero-rate offsets. The robot must be perfectly still
+ * while this runs (it samples for ~1 s). Used by the 'gcal' command. */
+esp_err_t sensors_calibrate_gyro(void);
+
 /* Read one AS5600 raw angle (index 0 = left bus, 1 = right bus). Used by the
  * FOC loop, hence the short I2C timeout. */
 esp_err_t sensors_read_encoder(uint8_t index, uint16_t *raw_angle);

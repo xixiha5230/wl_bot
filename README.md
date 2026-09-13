@@ -22,7 +22,8 @@ Wi-Fi 采用 **APSTA**：
 - **AP 兜底**：始终开启热点 `WLROBOT` / `12345678`，地址 `192.168.4.1`
   （特意避开常见的 `192.168.1.x` 家庭网段）。
 
-HTTP 网页在 `/`，WebSocket 在 `:81/`，状态接口 `/api/status`，无线调参 `/api/set`。
+固件只暴露**数据面**：WebSocket 在 `:81/`，另有 `/api/status`、`/api/set`、`POST /api/ota`。
+控制界面在**主机侧**运行（`tools/web`）——机器人不托管网页，静态资源和渲染压力都在电脑上。
 
 ## 架构
 
@@ -48,7 +49,9 @@ HTTP 网页在 `/`，WebSocket 在 `:81/`，状态接口 `/api/status`，无线�
 - **控制环**：LQR 平衡、YAW 转向、腿部高度 + roll 补偿、跳跃、失控保护。
 - **运行时调参**：`pid` / `lpf` / `zero` / `yaw`，边跑边调，立即生效。
 - **电源**：电压采样（EWMA 滤波）+ LED 迟滞指示 + 低压保护（去抖）。
-- **网络**：HTTP 网页（原版 `basic_web`）、WebSocket 遥控（端口 81）、`/api/status` JSON。
+- **网络**：WebSocket 遥控（端口 81）+ JSON API（`/api/status`、`/api/set`、`POST /api/ota`）；
+  控制 UI 在主机侧（`tools/web`），机器人只做数据面。
+- **OTA**：双 OTA 分区，`POST /api/ota`（body 为固件 URL）或串口 `ota <url>`，成功自动重启。
 - **串口控制台**：UART0，提示符 `wlrobot>`。
 
 ## 状态与安全保护
@@ -73,6 +76,16 @@ idf.py -p /dev/cu.usbserial-XXXX flash monitor
 ```
 
 首次构建会自动拉取 `main/idf_component.yml` 声明的外部组件。
+
+### 主机侧工具与 OTA
+
+```bash
+tools/serve_web.sh                 # 本地托管控制界面，浏览器打开提示的地址
+tools/ota.sh                       # 构建 → 本机起临时 HTTP → 触发机器人 OTA 并等待重启
+ROBOT=192.168.1.195 tools/ota.sh   # 指定机器人地址
+```
+
+界面连接 `ws://<host>:81/` 做实时遥控，用 `/api/set` 调参、`POST /api/ota` 升级，均带 CORS。
 
 ## 串口命令
 
@@ -106,19 +119,24 @@ lpf <name> <Tf>            改低通（joyy/zeropoint/roll）
 zero [deg]                 查看/设置平衡零点（基准值）
 yaw <1|-1|0>                YAW 正常 / 反向 / 关闭
 bat                        电池电压（含原始 ADC 值）
+ota <url>                  通过 Wi-Fi 拉取固件升级，成功后自动重启
 ```
 
 ## 平衡零点与调参
 
 - 本台实测机械平衡角**随腿高变化**：h32≈4.0°，h52≈3.2°，h80≈0.4°，约 **-0.075°/单位**。
-- 实现：`angle_zeropoint`（基准，h38 处默认 3.55°）+ 高度前馈；再由 `pid zeropoint`
-  （P=0.001，慢速）自适应跟踪残差，`rc` 的 `terms ... zero=` 显示当前生效零点。
+- 实现：`angle_zeropoint`（基准，h38 处默认 **4.4°**）+ 高度前馈；`rc` 的 `terms ... zero=`
+  显示当前生效零点。慢速自适应 `pid zeropoint` **默认关闭**（P=0）：实测它会在噪声下低频
+  游走，而固定基准 + 前馈已足够准；如确需跟踪，`pid zeropoint <P>` 可开启，其调整量被硬限制
+  在基准 ±`LEG_BALANCE_ZERO_ADAPT`（1°）内，绝不会因被按住/推动而跑飞。
+- 控制环路：`angle`（刚度）→ `gyro`（阻尼）→ `distance` / `speed`（前后）→ `yaw_angle` /
+  `yaw_gyro`（转向）；本台实测较优默认 `angle=1.1 distance=0.2 speed=0.4`，站立残摆约 0.5°。
+  实测把 `distance`（位移环）增益调小可显著减小 1~2 Hz 前后极限环。
 - 高度指令经软件斜坡（`LEG_HEIGHT_SLEW`）输出，切换高度时不会瞬间冲击机身。
-- 调参建议顺序：先 `zero` 找准站立点，再 `pid angle`（刚度）、`pid gyro`（阻尼），
-  最后 `pid distance` / `pid speed`（前后移动）与 `yaw_angle` / `yaw_gyro`（转向）。
+- 调参顺序：先 `zero` 找准站立点，再 `pid angle` / `pid gyro`，最后 `pid distance` / `pid speed`。
 - 脱线运行时可通过 HTTP 调参（无需 USB）：
-  `http://wlrobot.local/api/set?zero=3.0`、`/api/set?pid=angle&p=1.2&i=0`、
-  `/api/set?lpf=roll&tf=0.5`、`/api/set?yaw=-1`；当前状态见 `/api/status`。
+  `http://192.168.1.195/api/set?zero=4.4`、`/api/set?pid=angle&p=1.1&i=0`、
+  `/api/set?lpf=roll&tf=0.6`、`/api/set?yaw=1`；当前状态见 `/api/status`。
 
 ## 标定数据（`main/robot_config.h`）
 
@@ -132,19 +150,24 @@ ID1 机械行程 2030..2575，ID2 1512..2077
 
 - **FOC 并入控制任务**：原版是单循环里 `loopFOC()+move()`。曾拆成独立 `foc_task`，结果两个 1 kHz
   任务在同核节拍错位 + I2C 争用，FOC 实际掉到 ~300 Hz、力矩更新迟滞导致站不住；合并回单循环后恢复。
+- **`move()` 在 `loopFOC()` 之前**：arduino-foc 的 `loopFOC()` 施加的是上一次 `move()` 设的目标，
+  按 `loopFOC()+move()` 顺序会晚一拍（约 2 ms）施力，减少相位裕度。改为先 `move()` 再 `loopFOC()`
+  让新力矩在同一拍生效。
 - **LEDC 而非 MCPWM**：组件默认 MCPWM，但右电机（MCPWM 分组 1）带轮胎时对齐反复失败；
   原版 Arduino SimpleFOC 使用 LEDC，改回后带载对齐正常。
 - **自定义 `BoardEncoder : Sensor`**：复用现有 `i2c_master` AS5600，避免与组件的 `i2c_bus` 争用端口。
 - **右编码器与 MPU6050 共用 I2C1**：运行时 I2C 超时设为 10 ms，稳态下无读失败。
 - **网页摇杆字符串**：原版网页用 `Number.toFixed()` 发送摇杆值（字符串），原版 ArduinoJson 会自动
-  转数值；cJSON 不会。已在网页改为数值，并在固件端兼容字符串。
+  转数值；cJSON 不会。网页改为数值发送，固件 `json_to_int()` 同时兼容字符串。
+- **UI 外置 + OTA**：固件不再内嵌网页（原版 `basic_web` 约 22 KB），只提供 WS + JSON API；
+  控制界面在主机侧（`tools/web`），固件升级走 `POST /api/ota`（双 OTA 分区）。
 - **启动流程**：传感器初始化（失败重试）→ FOC 初始化 → 自动对齐（失败重试 3 次）→ 启动控制。
   对齐用互斥量串行化 `loopFOC`，避免相电压被覆盖；对齐失败自动断电。
 
 ## 备注
 
 - FreeRTOS 必须 `CONFIG_FREERTOS_HZ=1000`。
-- `CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y`（固件约 1.1 MB）。
+- 分区表为自定义双 OTA（`partitions.csv`）：两个 1.5 MB app 槽，固件约 1.29 MB（余约 18%）。
 - 依赖 `espressif/esp_simplefoc`、`espressif/cjson`（见 `main/idf_component.yml` 与 `dependencies.lock`）。
 - 启动时 `i2c.common: GPIO 23/5 not usable` 与 `ledc: GPIO xx not usable` 为组件保留检查的
   良性告警，不影响功能。

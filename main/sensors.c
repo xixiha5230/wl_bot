@@ -128,7 +128,7 @@ static esp_err_t read_mpu6050(mpu6050_sample_t *sample)
     return ESP_OK;
 }
 
-static esp_err_t calibrate_gyro(void)
+esp_err_t sensors_calibrate_gyro(void)
 {
     uint8_t data[6];
     float sum_x = 0.0f;
@@ -217,7 +217,7 @@ esp_err_t sensors_init(void)
     angle_x = initial_sample.angle_acc_x;
     angle_y = initial_sample.angle_acc_y;
     angle_gyro_z = 0.0f;
-    ESP_RETURN_ON_ERROR(calibrate_gyro(), TAG, "MPU6050 gyro calibration failed");
+    ESP_RETURN_ON_ERROR(sensors_calibrate_gyro(), TAG, "MPU6050 gyro calibration failed");
     previous_update_us = 0;
     previous_encoder_update_us = 0;
     encoder_history_valid = false;

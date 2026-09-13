@@ -9,7 +9,7 @@ idf_component_register(
         "servo_sts.c"
         "motor_foc.cpp"
         "robot_control.cpp"
-        "basic_web.cpp"
+        "ota.c"
         "ws_server.c"
         "console.c"
     INCLUDE_DIRS "."
@@ -21,10 +21,12 @@ idf_component_register(
         esp_driver_i2c
         esp_driver_uart
         esp_event
+        esp_http_client
         esp_netif
         esp_timer
         esp_http_server
         esp_wifi
+        app_update
         nvs_flash
         espressif__esp_simplefoc
 )

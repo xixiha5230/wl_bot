@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WLROBOT control</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: #14171c; color: #e6e8ea;
+         display: grid; grid-template-columns: 300px 1fr 280px; gap: 12px; padding: 12px; }
+  @media (max-width: 900px) { body { grid-template-columns: 1fr; } }
+  .card { background: #1d2128; border: 1px solid #2b313a; border-radius: 10px; padding: 12px; }
+  h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #8b97a6; }
+  label { display: block; margin: 8px 0 3px; color: #99a4b2; font-size: 12px; }
+  input, select, button { font: inherit; background: #12151a; color: #e6e8ea;
+                          border: 1px solid #333b45; border-radius: 7px; padding: 6px 8px; }
+  input[type=range] { padding: 0; width: 100%; }
+  button { cursor: pointer; background: #26303a; }
+  button:hover { background: #2f3c48; }
+  button.primary { background: #2f6fed; border-color: #2f6fed; }
+  button.danger { background: #b3382f; border-color: #b3382f; }
+  button.on { background: #1f8a4c; border-color: #1f8a4c; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { flex: 1; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .status { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #b3382f; display: inline-block; }
+  .dot.on { background: #1f8a4c; }
+  #pad { position: relative; width: 100%; aspect-ratio: 1; background: #12151a;
+         border: 1px solid #333b45; border-radius: 12px; touch-action: none; }
+  #knob { position: absolute; width: 22%; aspect-ratio: 1; border-radius: 50%;
+          background: #2f6fed; left: 39%; top: 39%; transition: none; }
+  #cross { position: absolute; inset: 0; background:
+           linear-gradient(#2b313a, #2b313a) center/1px 100% no-repeat,
+           linear-gradient(#2b313a, #2b313a) center/100% 1px no-repeat; opacity: .5; }
+  .muted { color: #6f7b8a; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h2>Connection</h2>
+  <label>Robot host</label>
+  <div class="row"><input id="host" value="192.168.1.195"><button id="connect" class="primary">Connect</button></div>
+  <p class="muted" style="margin-top:8px"><span id="dot" class="dot"></span> <span id="conn">disconnected</span></p>
+  <p class="muted">UI runs locally; the robot only serves JSON + WebSocket.</p>
+
+  <h2 style="margin-top:16px">Motion</h2>
+  <div class="row"><button id="go">Go</button><button id="stop" class="danger">Stop</button></div>
+  <label>Height <span id="heightv" class="muted"></span></label>
+  <input id="height" type="range" min="32" max="80" value="38">
+  <label>Roll <span id="rollv" class="muted"></span></label>
+  <input id="roll" type="range" min="-30" max="30" value="0">
+  <div class="grid3" style="margin-top:10px">
+    <button data-dir="forward">&#9650;</button>
+    <button data-dir="jump">Jump</button>
+    <button data-dir="left">&#9664;</button>
+    <button data-dir="stop">Stop</button>
+    <button data-dir="right">&#9654;</button>
+    <button data-dir="back">&#9660;</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Joystick <span id="joyv" class="muted">0, 0</span></h2>
+  <div id="pad"><div id="cross"></div><div id="knob"></div></div>
+  <p class="muted">x = turn (yaw), y = forward/back speed.</p>
+
+  <h2 style="margin-top:16px">Live status</h2>
+  <div id="status" class="status">--</div>
+</div>
+
+<div class="card">
+  <h2>Tuning</h2>
+  <label>PID</label>
+  <select id="pidname">
+    <option>angle</option><option>gyro</option><option>distance</option><option>speed</option>
+    <option>yaw_angle</option><option>yaw_gyro</option><option>lqr_u</option>
+    <option>zeropoint</option><option>roll_angle</option>
+  </select>
+  <div class="row" style="margin-top:6px">
+    <input id="pidp" placeholder="P"><input id="pidi" placeholder="I">
+    <input id="pidd" placeholder="D"><input id="pidl" placeholder="limit">
+  </div>
+  <button id="pidapply" class="primary" style="margin-top:6px;width:100%">Apply PID</button>
+
+  <label style="margin-top:12px">Low-pass filter</label>
+  <div class="row">
+    <select id="lpfname"><option>joyy</option><option>zeropoint</option><option>roll</option></select>
+    <input id="lpftf" placeholder="Tf">
+  </div>
+  <button id="lpfapply" class="primary" style="margin-top:6px;width:100%">Apply LPF</button>
+
+  <label style="margin-top:12px">Balance zero (deg)</label>
+  <div class="row"><input id="zero" placeholder="e.g. 3.55"><button id="zeroapply">Set</button></div>
+
+  <label style="margin-top:12px">Yaw mode</label>
+  <div class="row"><button id="yawon">On</button><button id="yawoff">Off</button></div>
+
+  <label style="margin-top:12px">Gyro re-zero (hold robot still)</label>
+  <button id="gcal" style="width:100%">Recalibrate gyro</button>
+
+  <h2 style="margin-top:16px">OTA</h2>
+  <label>Firmware URL</label>
+  <input id="otaurl" placeholder="http://192.168.1.193:8000/micro_wheeled_leg_bot.bin">
+  <button id="ota" class="danger" style="margin-top:6px;width:100%">Flash over Wi-Fi</button>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { mode: "basic", dir: "stop", height: 38, roll: 0,
+                linear: 0, angular: 0, stable: 0, joy_x: 0, joy_y: 0 };
+let ws = null, poll = null;
+
+function host() { return $("host").value.trim(); }
+function send() { if (ws && ws.readyState === 1) ws.send(JSON.stringify(state)); }
+function api(path, opts) { return fetch(`http://${host()}${path}`, opts); }
+
+$("connect").onclick = () => {
+  if (ws) { ws.close(); ws = null; }
+  localStorage.setItem("wlrobot_host", host());
+  ws = new WebSocket(`ws://${host()}:81/`);
+  ws.onopen = () => { $("dot").classList.add("on"); $("conn").textContent = "connected"; send(); };
+  ws.onclose = () => { $("dot").classList.remove("on"); $("conn").textContent = "disconnected"; };
+  ws.onerror = () => { $("conn").textContent = "error"; };
+  clearInterval(poll);
+  poll = setInterval(refresh, 500);
+  refresh();
+};
+
+async function refresh() {
+  try {
+    const d = await (await api("/api/status")).json();
+    $("status").textContent =
+      `state    ${d.state}\nbattery  ${d.battery.toFixed(2)} V\n` +
+      `go       ${d.go}   fault ${d.fault}\n` +
+      `angle    ${d.lqr_angle.toFixed(2)} deg\n` +
+      `lqr_u    ${d.lqr_u.toFixed(3)}\n` +
+      `pp       ${d.angle_pp.toFixed(2)}   leg_add ${d.leg_add.toFixed(1)}\n` +
+      `zero     ${d.zero.toFixed(2)}\n` +
+      `terms    a=${d.ta} g=${d.tg} d=${d.td} s=${d.ts}`;
+    state.stable = d.go;
+    $("go").classList.toggle("on", !!d.go);
+    $("height").value = d.height; $("heightv").textContent = d.height;
+  } catch (e) { $("status").textContent = "offline"; }
+}
+
+$("go").onclick = () => { const on = !$("go").classList.contains("on"); setGo(on); };
+$("stop").onclick = () => { setGo(false); };
+function setGo(on) { api(`/api/set?go=${on ? 1 : 0}`); state.stable = on ? 1 : 0; $("go").classList.toggle("on", on); send(); }
+
+$("height").oninput = () => { state.height = +$("height").value; $("heightv").textContent = state.height; send(); };
+$("roll").oninput = () => { state.roll = +$("roll").value; $("rollv").textContent = state.roll; send(); };
+document.querySelectorAll("[data-dir]").forEach(b => b.onclick = () => { state.dir = b.dataset.dir; send(); });
+
+const pad = $("pad"), knob = $("knob");
+function joy(e) {
+  const r = pad.getBoundingClientRect();
+  let x = (e.clientX - r.left) / r.width * 2 - 1;
+  let y = -((e.clientY - r.top) / r.height * 2 - 1);
+  const dead = 0.15, m = Math.hypot(x, y);
+  if (m < dead) { x = 0; y = 0; } else { const s = (m - dead) / (1 - dead) / m; x *= s; y *= s; }
+  x = Math.max(-1, Math.min(1, x)); y = Math.max(-1, Math.min(1, y));
+  state.joy_x = Math.round(x * 100); state.joy_y = Math.round(y * 100);
+  $("joyv").textContent = `${state.joy_x}, ${state.joy_y}`;
+  knob.style.left = `${(x + 1) / 2 * 78 + 11}%`; knob.style.top = `${(-y + 1) / 2 * 78 + 11}%`;
+  send();
+}
+pad.addEventListener("pointerdown", e => { pad.setPointerCapture(e.pointerId); joy(e); });
+pad.addEventListener("pointermove", e => { if (e.buttons) joy(e); });
+pad.addEventListener("pointerup", () => { state.joy_x = state.joy_y = 0; $("joyv").textContent = "0, 0";
+  knob.style.left = "39%"; knob.style.top = "39%"; send(); });
+
+$("pidapply").onclick = () => {
+  let q = `pid=${$("pidname").value}&p=${$("pidp").value || 0}&i=${$("pidi").value || 0}` +
+          `&d=${$("pidd").value || 0}&limit=${$("pidl").value || 0}`;
+  api(`/api/set?${q}`);
+};
+$("lpfapply").onclick = () => api(`/api/set?lpf=${$("lpfname").value}&tf=${$("lpftf").value || 0}`);
+$("zeroapply").onclick = () => api(`/api/set?zero=${$("zero").value}`);
+$("yawon").onclick = () => api("/api/set?yaw=1");
+$("yawoff").onclick = () => api("/api/set?yaw=0");
+$("gcal").onclick = () => { if (confirm("Keep the robot perfectly still. Recalibrate gyro now?"))
+  api("/api/set?gcal=1"); };
+$("ota").onclick = () => {
+  if (!confirm("Flash new firmware over Wi-Fi and reboot?")) return;
+  api("/api/ota", { method: "POST", body: $("otaurl").value });
+};
+
+$("host").value = localStorage.getItem("wlrobot_host") || "192.168.1.195";
+</script>
+</body>
+</html>

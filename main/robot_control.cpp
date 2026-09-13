@@ -42,14 +42,17 @@ struct StabPID : public PIDController {
     }
 };
 
-static StabPID pid_angle(1.0f, 0.0f, 0.0f, 100000.0f, 8.0f);
+static StabPID pid_angle(1.1f, 0.0f, 0.0f, 100000.0f, 8.0f);
 static StabPID pid_gyro(0.06f, 0.0f, 0.0f, 100000.0f, 8.0f);
-static StabPID pid_distance(0.5f, 0.0f, 0.0f, 100000.0f, 8.0f);
-static StabPID pid_speed(0.7f, 0.0f, 0.0f, 100000.0f, 8.0f);
+static StabPID pid_distance(0.2f, 0.0f, 0.0f, 100000.0f, 8.0f);
+static StabPID pid_speed(0.4f, 0.0f, 0.0f, 100000.0f, 8.0f);
 static StabPID pid_yaw_angle(1.0f, 0.0f, 0.0f, 100000.0f, 8.0f);
 static StabPID pid_yaw_gyro(0.04f, 0.0f, 0.0f, 100000.0f, 8.0f);
 static StabPID pid_lqr_u(1.0f, 15.0f, 0.0f, 100000.0f, 8.0f);
-static StabPID pid_zeropoint(0.001f, 0.0f, 0.0f, 100000.0f, 4.0f);
+/* Disabled by default: the base + height feed-forward already track the measured
+ * stationary lean well, and this slow loop otherwise wanders ('pid zeropoint'
+ * re-enables it if ever needed). */
+static StabPID pid_zeropoint(0.0f, 0.0f, 0.0f, 100000.0f, 4.0f);
 static StabPID pid_roll_angle(4.0f, 0.0f, 0.0f, 100000.0f, 450.0f);
 
 static LowPassFilter lpf_joy_y(0.2f);
@@ -75,6 +78,11 @@ static volatile float LQR_u;
 static float LQR_gyro;
 static float LQR_speed;
 static float LQR_distance;
+/* Raw wheel velocities, exposed for diagnostics (a pure yaw spin shows up as
+ * left and right velocities that are equal and opposite). */
+static float last_left_velocity;
+static float last_right_velocity;
+static float last_gyro_z;
 static float angle_control;
 static float gyro_control;
 static float speed_control;
@@ -83,6 +91,7 @@ static float distance_control;
  * reference -2.25 assumes a different sensor orientation; this is the value
  * measured on this build (see robot_config.h). 'zero' changes the base. */
 static float angle_zeropoint = LEG_BALANCE_ZERO_DEFAULT;
+static float angle_zeropoint_base = LEG_BALANCE_ZERO_DEFAULT;
 static float distance_zeropoint = -256.0f;
 
 /* Yaw state */
@@ -108,6 +117,7 @@ static float leg_position_add;
 static float leg_height_cmd = (float)LEG_HEIGHT_DEFAULT;
 static float last_roll_angle;
 static float last_balance_zero;
+static volatile float angle_pp;
 static int yaw_mode = 1;   /* 1 = normal, -1 = inverted, 0 = disabled */
 static bool arm_request;   /* reset distance zero/PIDs when go turns on */
 
@@ -229,6 +239,7 @@ void robot_control_set_lpf(int which, float tf)
 void robot_control_set_angle_zeropoint(float degrees)
 {
     angle_zeropoint = degrees;
+    angle_zeropoint_base = degrees;
 }
 
 float robot_control_get_angle_zeropoint(void)
@@ -239,6 +250,11 @@ float robot_control_get_angle_zeropoint(void)
 float robot_control_get_balance_zero(void)
 {
     return last_balance_zero;
+}
+
+float robot_control_angle_pp(void)
+{
+    return angle_pp;
 }
 
 void robot_control_set_go(bool go)
@@ -301,17 +317,20 @@ int robot_control_get_yaw_mode(void)
     return yaw_mode;
 }
 
+/* PIDController::clear_error() only resets the error history; the integral
+ * accumulator (integral_prev) needs reset() as well, otherwise pid_lqr_u can
+ * stay wound up after a fault/fall. */
 static void reset_pids(void)
 {
-    pid_angle.clear_error();
-    pid_gyro.clear_error();
-    pid_distance.clear_error();
-    pid_speed.clear_error();
-    pid_yaw_angle.clear_error();
-    pid_yaw_gyro.clear_error();
-    pid_lqr_u.clear_error();
-    pid_zeropoint.clear_error();
-    pid_roll_angle.clear_error();
+    pid_angle.reset();
+    pid_gyro.reset();
+    pid_distance.reset();
+    pid_speed.reset();
+    pid_yaw_angle.reset();
+    pid_yaw_gyro.reset();
+    pid_lqr_u.reset();
+    pid_zeropoint.reset();
+    pid_roll_angle.reset();
 }
 
 /* ------------------------------------------------------------------------- */
@@ -399,6 +418,9 @@ static void lqr_balance_loop(const motor_feedback_t *left, const motor_feedback_
 {
     LQR_distance = (-0.5f) * (left->angle + right->angle);
     LQR_speed = (-0.5f) * (left->velocity + right->velocity);
+    last_left_velocity = left->velocity;
+    last_right_velocity = right->velocity;
+    last_gyro_z = imu->gyro_z_dps;
     LQR_angle = imu->angle_y;
     LQR_gyro = imu->gyro_y_dps;
 
@@ -451,17 +473,16 @@ static void lqr_balance_loop(const motor_feedback_t *left, const motor_feedback_
     if (fabsf(LQR_u) < 5.0f && cmd->joy_y == 0 && fabsf(distance_control) < 4.0f &&
         jump_flag == 0) {
         LQR_u = pid_lqr_u(LQR_u);
+        /* Slow adaptation to the stationary lean angle, hard-bounded around the
+         * configured base so a push/held robot can never wind the zero away. */
         angle_zeropoint -= pid_zeropoint(lpf_zeropoint(distance_control));
+        if (angle_zeropoint < angle_zeropoint_base - LEG_BALANCE_ZERO_ADAPT) {
+            angle_zeropoint = angle_zeropoint_base - LEG_BALANCE_ZERO_ADAPT;
+        } else if (angle_zeropoint > angle_zeropoint_base + LEG_BALANCE_ZERO_ADAPT) {
+            angle_zeropoint = angle_zeropoint_base + LEG_BALANCE_ZERO_ADAPT;
+        }
     } else {
         pid_lqr_u.clear_error();
-    }
-
-    if (cmd->height < 50) {
-        pid_speed.P = 0.7f;
-    } else if (cmd->height < 64) {
-        pid_speed.P = 0.6f;
-    } else {
-        pid_speed.P = 0.5f;
     }
 }
 
@@ -677,6 +698,20 @@ static void control_task(void *arg)
             prev_joy_y = cmd.joy_y;
         }
 
+        {
+            static float a_min = 1e9f;
+            static float a_max = -1e9f;
+            static int pp_count;
+            if (LQR_angle < a_min) a_min = LQR_angle;
+            if (LQR_angle > a_max) a_max = LQR_angle;
+            if (++pp_count >= 500) {
+                angle_pp = a_max - a_min;
+                a_min = 1e9f;
+                a_max = -1e9f;
+                pp_count = 0;
+            }
+        }
+
         motor_foc_step();
         vTaskDelayUntil(&last_wake, 1);
     }
@@ -728,6 +763,21 @@ float robot_control_yaw_output(void)
 float robot_control_yaw_total(void)
 {
     return YAW_angle_total;
+}
+
+float robot_control_left_velocity(void)
+{
+    return last_left_velocity;
+}
+
+float robot_control_right_velocity(void)
+{
+    return last_right_velocity;
+}
+
+float robot_control_gyro_z(void)
+{
+    return last_gyro_z;
 }
 
 void robot_control_get_terms(float *angle, float *gyro, float *distance, float *speed)
