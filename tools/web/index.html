@@ -116,6 +116,9 @@
   <label style="margin-top:12px">Gyro re-zero (hold robot still)</label>
   <button id="gcal" style="width:100%">Recalibrate gyro</button>
 
+  <label style="margin-top:12px">Auto level (robot standing on flat ground)</label>
+  <button id="rblevel" style="width:100%">Calibrate level</button>
+
   <h2 style="margin-top:16px">Jump tune</h2>
   <label>h(32-80) land spd(0=max) acc tick</label>
   <div class="row">
@@ -231,6 +234,8 @@ $("yawon").onclick = () => api("/api/set?yaw=1");
 $("yawoff").onclick = () => api("/api/set?yaw=0");
 $("gcal").onclick = () => { if (confirm("Keep the robot perfectly still. Recalibrate gyro now?"))
   api("/api/set?gcal=1"); };
+$("rblevel").onclick = () => { if (confirm("Stand the robot on flat ground. Auto-calibrate level now? (roll correction pauses ~1.5s)"))
+  api("/api/set?rblevel=1"); };
 $("ota").onclick = () => {
   if (!confirm("Flash new firmware over Wi-Fi and reboot?")) return;
   api("/api/ota", { method: "POST", body: $("otaurl").value });

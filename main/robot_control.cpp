@@ -13,6 +13,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 
 #include <math.h>
 
@@ -53,7 +55,11 @@ static StabPID pid_lqr_u(1.0f, 15.0f, 0.0f, 100000.0f, 8.0f);
  * stationary lean well, and this slow loop otherwise wanders ('pid zeropoint'
  * re-enables it if ever needed). */
 static StabPID pid_zeropoint(0.0f, 0.0f, 0.0f, 100000.0f, 4.0f);
-static StabPID pid_roll_angle(10.0f, 1.0f, 0.0f, 100000.0f, 150.0f);
+/* P=10: 1 deg of roll ~ 10 servo counts of differential. The integral trims
+ * the steady-state error on a slope. Output limit 500 sits above the maximum
+ * differential the leg travel clamps allow, so the mechanical clamps are the
+ * real bound; the PID anti-windup keeps the integral inside the same limit. */
+static StabPID pid_roll_angle(10.0f, 1.0f, 0.0f, 100000.0f, 500.0f);
 
 static LowPassFilter lpf_joy_y(0.2f);
 static LowPassFilter lpf_zeropoint(0.1f);
@@ -120,6 +126,9 @@ static float last_balance_zero;
 static volatile float angle_pp;
 static int yaw_mode = 1;   /* 1 = normal, -1 = inverted, 0 = disabled */
 static int roll_mode = 1;  /* roll correction sign, same convention */
+/* IMU mounting bias: raw angle_x reading when the chassis is visually level.
+ * Exposed as `rb` for live calibration (falls can shift the sensor board). */
+static float roll_bias = 2.0f;
 static bool arm_request;   /* reset distance zero/PIDs when go turns on */
 
 /* Runtime-tunable jump profile (defaults mirror LEG_JUMP_* in robot_config.h).
@@ -346,6 +355,75 @@ void robot_control_set_roll_mode(int mode)
 int robot_control_get_roll_mode(void)
 {
     return roll_mode;
+}
+
+void robot_control_set_roll_bias(float bias)
+{
+    if (bias > -10.0f && bias < 10.0f) {
+        roll_bias = bias;
+    }
+}
+
+float robot_control_get_roll_bias(void)
+{
+    return roll_bias;
+}
+
+/* NVS persistence so a level calibration survives reboots. */
+#define NVS_NS "wlbot"
+#define NVS_KEY_ROLL_BIAS "roll_bias"
+
+static void roll_bias_save(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &handle) == ESP_OK) {
+        nvs_set_blob(handle, NVS_KEY_ROLL_BIAS, &roll_bias, sizeof(roll_bias));
+        nvs_commit(handle);
+        nvs_close(handle);
+    }
+}
+
+static void roll_bias_load(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NS, NVS_READONLY, &handle) != ESP_OK) {
+        return;
+    }
+    float value = roll_bias;
+    size_t length = sizeof(value);
+    if (nvs_get_blob(handle, NVS_KEY_ROLL_BIAS, &value, &length) == ESP_OK &&
+        length == sizeof(value) && value > -10.0f && value < 10.0f) {
+        roll_bias = value;
+    }
+    nvs_close(handle);
+}
+
+float robot_control_calibrate_level(void)
+{
+    const int previous_mode = roll_mode;
+    roll_mode = 0;   /* legs to their symmetric nominal pose */
+
+    vTaskDelay(pdMS_TO_TICKS(900));
+    float sum = 0.0f;
+    int samples = 0;
+    for (int i = 0; i < 100; ++i) {
+        sum += last_roll_angle;
+        samples++;
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    if (samples > 0) {
+        float bias = -sum / (float)samples;
+        if (bias > -10.0f && bias < 10.0f) {
+            roll_bias = bias;
+        } else {
+            ESP_LOGW("robot_control", "level calibration rejected (rb=%.1f)", bias);
+        }
+    }
+    roll_bias_save();
+
+    roll_mode = (previous_mode == 0) ? 1 : previous_mode;
+    ESP_LOGI("robot_control", "level calibrated: rb=%.2f", roll_bias);
+    return roll_bias;
 }
 
 void robot_control_set_jump_profile(int height, int land_height, int speed,
@@ -629,7 +707,7 @@ static void leg_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
         return;
     }
 
-    float roll_angle = imu->angle_x + 2.0f - (float)cmd->roll;
+    float roll_angle = imu->angle_x + roll_bias - (float)cmd->roll;
     last_roll_angle = imu->angle_x;
     float roll_out = pid_roll_angle(lpf_roll(roll_angle));
     leg_position_add = (roll_mode == 0) ? 0.0f : (float)roll_mode * roll_out;
@@ -849,6 +927,10 @@ esp_err_t robot_control_start(void)
         return ESP_ERR_NO_MEM;
     }
 
+    /* Control starts before wifi_net (which also inits NVS), so make sure the
+     * key-value store exists before loading the saved level calibration. */
+    nvs_flash_init();
+    roll_bias_load();
     if (xTaskCreatePinnedToCore(control_task, "control_task", 6144, NULL, CONTROL_TASK_PRIO,
                                 NULL, ROBOT_TASK_CORE) != pdPASS) {
         vQueueDelete(leg_queue);

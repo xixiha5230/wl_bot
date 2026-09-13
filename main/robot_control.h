@@ -55,6 +55,15 @@ int robot_control_get_yaw_mode(void);
 void robot_control_set_roll_mode(int mode);
 int robot_control_get_roll_mode(void);
 
+/* IMU roll mounting bias in degrees (raw angle_x at visually level). */
+void robot_control_set_roll_bias(float bias);
+float robot_control_get_roll_bias(void);
+/* One-shot level calibration: disables roll correction so both legs sit at
+ * their symmetric nominal pose (the mechanical horizontal reference), averages
+ * the IMU roll, stores it as the new bias in NVS, then restores the loop.
+ * Takes ~1.4 s and must be called with the robot standing on flat ground. */
+float robot_control_calibrate_level(void);
+
 /* Jump profile, tunable at runtime (defaults from LEG_JUMP_* in robot_config.h):
  *   height/land_height in mm, speed 0..2000 (0 = max), acc 0..100,
  *   land_ticks = control ticks (~1/500 s) after launch before the land command. */

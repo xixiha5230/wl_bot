@@ -240,6 +240,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: const Text('Gyro cal'),
                     ),
                   ]),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Calibrate level?'),
+                          content: const Text(
+                              'Stand the robot on flat ground. Roll correction is '
+                              'briefly disabled so both legs return to their '
+                              'symmetric pose, then the IMU reading is stored.'),
+                          actions: [
+                            TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('Cancel')),
+                            FilledButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                child: const Text('Calibrate')),
+                          ],
+                        ),
+                      );
+                      if (ok == true) {
+                        await _apply(
+                            {'rblevel': '1'}, 'level calibrated');
+                      }
+                    },
+                    icon: const Icon(Icons.straighten),
+                    label: const Text('Calibrate level (auto)'),
+                  ),
                 ],
               ),
               _card(

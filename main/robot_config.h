@@ -44,8 +44,10 @@
 /* Software travel clamp. The reference values pinned leg1 at its h38 pose
  * (MIN 2110) and leg2 at h38 (MAX 1986), clipping roll correction to one
  * direction and the height range to 38..80. Widened to cover h32..h80 plus
- * roll margin; crouch jumps already proved servo1 reaches ~2050 unharmed. */
-#define LEG_POS1_MIN             2000
+ * roll margin; crouch jumps already proved servo1 reaches ~2050 unharmed.
+ * POS1_MIN keeps extra clearance: at full retraction the left chassis drops
+ * until the wheel binds, so the clamp stops just above that point. */
+#define LEG_POS1_MIN             2060
 #define LEG_POS1_MAX             2580
 #define LEG_POS2_MIN             1510
 #define LEG_POS2_MAX             2090
