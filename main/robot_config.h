@@ -41,16 +41,15 @@
 #define LEG_HEIGHT_MAX           80
 #define LEG_HEIGHT_DEFAULT       38
 
-/* Global leg travel limits (servo command counts), measured on the bench:
- *   highest from ground (h80): leg1 = 2438, leg2 = 1635  (readback)
- *   lowest  from ground (h35): leg1 = 2062, leg2 = 2023  (readback)
- * The servo readback is offset from the command by ~15 counts (mirrored):
- * leg1 readback = command - 15, leg2 readback = command + 16, so the command
- * limits below keep the readback inside the measured mechanical range. */
-#define LEG_POS1_MIN             2077
-#define LEG_POS1_MAX             2453
-#define LEG_POS2_MIN             1619
-#define LEG_POS2_MAX             2007
+/* Global leg travel limits (servo counts), from bench measurements at the
+ * height extremes (the boundaries beyond which the tyres start to rub):
+ *   highest from ground: leg1 = 2438, leg2 = 1635
+ *   lowest  from ground: leg1 = 2062, leg2 = 2023
+ * Enforced on every leg command path (height, roll correction and jumps). */
+#define LEG_POS1_MIN             2062
+#define LEG_POS1_MAX             2438
+#define LEG_POS2_MIN             1635
+#define LEG_POS2_MAX             2023
 
 /* Leg actuator speed/acceleration for normal height tracking and jumps. */
 #define LEG_MOVE_SPEED           200
