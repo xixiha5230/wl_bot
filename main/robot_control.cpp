@@ -129,8 +129,8 @@ static int jump_speed = LEG_JUMP_SPEED;
 static int jump_acc = LEG_JUMP_ACC;
 static int jump_land_ticks = 32;
 /* Gait: crouch first to load the legs, then slam up, then retract to catch.
- * The crouch stays just above the chassis-to-wheel clearance (h32 touches). */
-static int jump_crouch = 36;
+ * h34 keeps chassis-to-wheel clearance (h32 scrapes) and jumps reliably. */
+static int jump_crouch = 34;
 static int jump_crouch_ticks = 150;
 
 /* Attitude/battery fault latch: motors are disabled and stay off until the
@@ -143,6 +143,9 @@ typedef enum {
 
 static volatile fault_reason_t fault_reason = FAULT_NONE;
 static int recover_ticks;
+/* Latched at attitude-fault entry when the operator had go on: the robot
+ * re-arms by itself once upright again, without a manual go command. */
+static bool go_auto_latch;
 
 static bool control_started;
 static QueueHandle_t leg_queue;
@@ -276,6 +279,9 @@ void robot_control_set_go(bool go)
     portENTER_CRITICAL(&cmd_mux);
     command.go = go;
     portEXIT_CRITICAL(&cmd_mux);
+    if (!go) {
+        go_auto_latch = false;   /* explicit stop cancels pending auto-recovery */
+    }
 }
 
 void robot_control_set_height(int height)
@@ -691,7 +697,7 @@ static bool battery_is_low(void)
     return false;
 }
 
-static void enter_fault(fault_reason_t reason)
+static void enter_fault(fault_reason_t reason, bool operator_go)
 {
     if (fault_reason != FAULT_NONE) {
         return;
@@ -701,9 +707,13 @@ static void enter_fault(fault_reason_t reason)
     motor_foc_stop();
     reset_pids();
     robot_control_set_go(false);
+    /* Auto-recovery only for attitude faults while the operator wanted to run;
+     * battery faults always need a manual restart. */
+    go_auto_latch = (reason == FAULT_ATTITUDE) && operator_go;
     robot_state_set(ROBOT_STATE_FAULT);
-    ESP_LOGE("robot_control", "fault (%s), motors disabled; set go=1 when resolved",
-             reason == FAULT_BATTERY ? "battery low" : "attitude");
+    ESP_LOGE("robot_control", "fault (%s), motors disabled%s",
+             reason == FAULT_BATTERY ? "battery low" : "attitude",
+             go_auto_latch ? "; will auto-recover when upright" : "; set go=1 when resolved");
 }
 
 static void fault_recover(const robot_command_t *cmd, const mpu6050_sample_t *imu)
@@ -714,14 +724,19 @@ static void fault_recover(const robot_command_t *cmd, const mpu6050_sample_t *im
         ? (board_battery_voltage() > BOARD_BATTERY_RECOVER_VOLTAGE)
         : (fabsf(LQR_angle) < ATTITUDE_RECOVER_DEG);
 
-    if (condition_ok && cmd->go) {
+    if (condition_ok && (cmd->go || go_auto_latch)) {
         if (++recover_ticks >= RECOVER_HOLD_TICKS) {
             recover_ticks = 0;
             reset_pids();
             if (motor_foc_enable_torque() == ESP_OK) {
                 fault_reason = FAULT_NONE;
+                go_auto_latch = false;
+                if (!cmd->go) {
+                    robot_control_set_go(true);   /* resume the latched run */
+                }
                 robot_state_set(ROBOT_STATE_READY);
-                ESP_LOGI("robot_control", "recovered from fault");
+                ESP_LOGI("robot_control", "recovered from fault%s",
+                         cmd->go ? "" : " (auto)");
             } else {
                 robot_state_set(ROBOT_STATE_FAULT);
             }
@@ -765,9 +780,9 @@ static void control_task(void *arg)
                 leg_loop(&imu, &cmd);
 
                 if (fabsf(LQR_angle) > ATTITUDE_FAULT_DEG) {
-                    enter_fault(FAULT_ATTITUDE);
+                    enter_fault(FAULT_ATTITUDE, cmd.go);
                 } else if (cmd.go && battery_is_low()) {
-                    enter_fault(FAULT_BATTERY);
+                    enter_fault(FAULT_BATTERY, cmd.go);
                 } else {
                     apply_motor_targets(&cmd);
                     robot_state_set(cmd.go ? ROBOT_STATE_RUNNING : ROBOT_STATE_READY);
