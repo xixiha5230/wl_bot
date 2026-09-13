@@ -999,11 +999,12 @@ static void leg_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
 
     float roll_angle = imu->angle_x + roll_bias - (float)cmd->roll;
     last_roll_angle = imu->angle_x;
-    if (fault_reason != FAULT_NONE) {
-        /* While faulted the robot is usually on its side and the roll error is
-         * huge; chasing it would wind the integral up and slam the legs to the
-         * travel clamps. Hold the legs level and keep the loop unwound so the
-         * recovery starts from a neutral pose. */
+    /* Roll correction is disabled while faulted to avoid winding up on a huge
+     * roll error (the robot is usually on its side). It stays active during a
+     * get-up/rock so the chassis does not roll over while it comes up. */
+    const bool roll_active = (fault_reason == FAULT_NONE) ||
+                             (wheel_seq_len > 0) || (getup_state == 1);
+    if (!roll_active) {
         pid_roll_angle.reset();
         leg_position_add = 0.0f;
     } else {
@@ -1184,7 +1185,7 @@ static void control_task(void *arg)
                     wheel_seq_len = 0;
                     manual_ticks = 0;
                     wheel_seq_arm = false;
-                    motor_foc_stop();
+                    motor_foc_enable_torque();
                     manual_armed = false;
                     reset_pids();
                     arm_request = true;
