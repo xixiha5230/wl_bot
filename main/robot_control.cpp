@@ -55,11 +55,14 @@ static StabPID pid_lqr_u(1.0f, 15.0f, 0.0f, 100000.0f, 8.0f);
  * stationary lean well, and this slow loop otherwise wanders ('pid zeropoint'
  * re-enables it if ever needed). */
 static StabPID pid_zeropoint(0.0f, 0.0f, 0.0f, 100000.0f, 4.0f);
-/* P=10: 1 deg of roll ~ 10 servo counts of differential. The integral trims
- * the steady-state error on a slope. Output limit 500 sits above the maximum
- * differential the leg travel clamps allow, so the mechanical clamps are the
- * real bound; the PID anti-windup keeps the integral inside the same limit. */
-static StabPID pid_roll_angle(10.0f, 1.0f, 0.0f, 100000.0f, 500.0f);
+/* P=4, I=20: the proportional gain has to stay low because the leg servo +
+ * LPF lag leaves little phase margin (P=10 rang at ~1.2 Hz). A large integral
+ * then does the real work: the leg servo is slow enough that the high integral
+ * gain does not overshoot, and it levels a slope in ~0.5 s instead of tens of
+ * seconds with I=1 (I>30 starts to ring). Output limit 500 sits above the
+ * maximum differential the leg travel clamps allow, so those clamps are the
+ * real bound; the anti-windup keeps the integral inside the same limit. */
+static StabPID pid_roll_angle(4.0f, 20.0f, 0.0f, 100000.0f, 500.0f);
 
 static LowPassFilter lpf_joy_y(0.2f);
 static LowPassFilter lpf_zeropoint(0.1f);
