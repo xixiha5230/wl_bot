@@ -61,6 +61,15 @@ float robot_control_get_roll_bias(void);
 /* Pitch threshold (deg) that latches an attitude fault. */
 void robot_control_set_fault_deg(float degrees);
 float robot_control_get_fault_deg(void);
+
+/* Airborne detection: specific-force threshold (g) and output scale while
+ * airborne. Also exposes the current magnitude and flag for telemetry. */
+void robot_control_set_air(float thresh_g, float scale);
+float robot_control_get_air_thresh(void);
+float robot_control_get_air_scale(void);
+float robot_control_accel_mag(void);
+void robot_control_get_accel(float *x, float *y, float *z);
+int robot_control_airborne(void);
 /* One-shot level calibration: disables roll correction so both legs sit at
  * their symmetric nominal pose (the mechanical horizontal reference), averages
  * the IMU roll, stores it as the new bias in NVS, then restores the loop.

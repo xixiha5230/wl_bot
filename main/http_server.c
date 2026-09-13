@@ -46,19 +46,23 @@ static esp_err_t status_handler(httpd_req_t *request)
     robot_command_t cmd = robot_control_get_command();
     float ta, tg, td, ts;
     robot_control_get_terms(&ta, &tg, &td, &ts);
-    char response[576];
+    char response[768];
     int jh, jl, js, ja, jt;
     int jc, jct;
     int16_t leg1, leg2;
     int jf;
+    float ax, ay, az;
     robot_control_get_jump_profile(&jh, &jl, &js, &ja, &jt);
     robot_control_get_jump_crouch(&jc, &jct);
     robot_control_get_leg_diag(&leg1, &leg2, &jf);
+    robot_control_get_accel(&ax, &ay, &az);
     snprintf(response, sizeof(response),
              "{\"state\":\"%s\",\"battery\":%.2f,\"go\":%d,\"height\":%d,"
              "\"lqr_angle\":%.2f,\"lqr_u\":%.3f,\"fault\":%d,"
              "\"joy_x\":%d,\"joy_y\":%d,\"dir\":%d,"
              "\"zero\":%.2f,\"yaw_mode\":%d,\"roll_mode\":%d,\"rb\":%.2f,\"faultdeg\":%.1f,"
+             "\"amag\":%.2f,\"air\":%d,\"airth\":%.2f,\"airscale\":%.2f,"
+             "\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,"
              "\"angle_pp\":%.2f,\"ta\":%.2f,\"tg\":%.2f,\"td\":%.2f,\"ts\":%.2f,"
              "\"leg_add\":%.1f,\"yaw\":%.1f,\"yaw_out\":%.2f,\"roll\":%.2f,"
              "\"vl\":%.2f,\"vr\":%.2f,\"gz\":%.2f,\"uptime\":%d,"
@@ -71,6 +75,9 @@ static esp_err_t status_handler(httpd_req_t *request)
              robot_control_get_balance_zero(), robot_control_get_yaw_mode(),
              robot_control_get_roll_mode(), robot_control_get_roll_bias(),
              robot_control_get_fault_deg(),
+             robot_control_accel_mag(), robot_control_airborne(),
+             robot_control_get_air_thresh(), robot_control_get_air_scale(),
+             ax, ay, az,
              robot_control_angle_pp(), ta, tg, td, ts,
              robot_control_leg_add(), robot_control_yaw_total(),
              robot_control_yaw_output(), robot_control_roll_angle(),
@@ -129,6 +136,18 @@ static esp_err_t set_handler(httpd_req_t *request)
         robot_control_set_fault_deg(v);
         snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
                  "faultdeg=%.1f ", robot_control_get_fault_deg());
+    }
+    if (httpd_query_key_value(query, "airth", value, sizeof(value)) == ESP_OK) {
+        float th = strtof(value, NULL);
+        robot_control_set_air(th, robot_control_get_air_scale());
+        snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                 "airth=%.2f ", robot_control_get_air_thresh());
+    }
+    if (httpd_query_key_value(query, "airscale", value, sizeof(value)) == ESP_OK) {
+        float sc = strtof(value, NULL);
+        robot_control_set_air(robot_control_get_air_thresh(), sc);
+        snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                 "airscale=%.2f ", robot_control_get_air_scale());
     }
     if (httpd_query_key_value(query, "go", value, sizeof(value)) == ESP_OK) {
         int v = atoi(value);

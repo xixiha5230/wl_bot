@@ -137,6 +137,20 @@ static float roll_bias = 2.0f;
  * from 25 to 35 deg so a transient while driving over an obstacle (a wheel
  * dropping off a plank) does not abort the run; tunable as `faultdeg`. */
 static float attitude_fault_deg = 35.0f;
+/* Airborne / drop detection. While the wheels are off the ground the balance
+ * loop's drive just spins them up; the leftover wheel speed then makes the
+ * robot lunge forward on landing. Below `air_thresh_g` of specific force the
+ * robot is treated as airborne and the balance output is scaled by
+ * `air_scale` until it lands. Tumable as `airth` / `airscale`. */
+static float air_thresh_g = 0.60f;
+static float air_scale = 0.25f;
+static int air_hold_ticks = 20;   /* debounce, control ticks (~1 kHz) */
+static int air_count;
+static volatile float accel_mag_g;
+static volatile int airborne;
+static volatile float accel_x_last;
+static volatile float accel_y_last;
+static volatile float accel_z_last;
 static bool arm_request;   /* reset distance zero/PIDs when go turns on */
 
 /* Runtime-tunable jump profile (defaults mirror LEG_JUMP_* in robot_config.h).
@@ -387,6 +401,43 @@ void robot_control_set_fault_deg(float degrees)
 float robot_control_get_fault_deg(void)
 {
     return attitude_fault_deg;
+}
+
+void robot_control_set_air(float thresh_g, float scale)
+{
+    if (thresh_g > 0.05f && thresh_g < 1.5f) {
+        air_thresh_g = thresh_g;
+    }
+    if (scale >= 0.0f && scale <= 1.0f) {
+        air_scale = scale;
+    }
+}
+
+float robot_control_get_air_thresh(void)
+{
+    return air_thresh_g;
+}
+
+float robot_control_get_air_scale(void)
+{
+    return air_scale;
+}
+
+float robot_control_accel_mag(void)
+{
+    return accel_mag_g;
+}
+
+void robot_control_get_accel(float *x, float *y, float *z)
+{
+    if (x) *x = accel_x_last;
+    if (y) *y = accel_y_last;
+    if (z) *z = accel_z_last;
+}
+
+int robot_control_airborne(void)
+{
+    return airborne;
 }
 
 /* NVS persistence so a level calibration survives reboots. */
@@ -668,6 +719,29 @@ static void lqr_balance_loop(const motor_feedback_t *left, const motor_feedback_
             angle_zeropoint = angle_zeropoint_base + LEG_BALANCE_ZERO_ADAPT;
         }
     } else {
+        pid_lqr_u.clear_error();
+    }
+
+    /* Airborne detection: the accelerometer's specific-force magnitude drops
+     * toward zero when both wheels leave the ground (a step, a drop, a bump).
+     * Scaling the drive down then stops the wheels winding up, so the robot
+     * does not lunge as they regain traction. */
+    accel_mag_g = sqrtf(imu->accel_x_g * imu->accel_x_g +
+                        imu->accel_y_g * imu->accel_y_g +
+                        imu->accel_z_g * imu->accel_z_g);
+    accel_x_last = imu->accel_x_g;
+    accel_y_last = imu->accel_y_g;
+    accel_z_last = imu->accel_z_g;
+    if (accel_mag_g < air_thresh_g) {
+        if (air_count < air_hold_ticks) {
+            air_count++;
+        }
+    } else if (air_count > 0) {
+        air_count--;
+    }
+    airborne = (air_count > 0) ? 1 : 0;
+    if (airborne) {
+        LQR_u *= air_scale;
         pid_lqr_u.clear_error();
     }
 }
