@@ -71,6 +71,15 @@ float robot_control_accel_mag(void);
 void robot_control_get_accel(float *x, float *y, float *z);
 int robot_control_airborne(void);
 
+/* Global leg travel limits (servo counts), enforced on every leg command path
+ * (height, roll correction and jumps). */
+void robot_control_set_leg_limits(int pos1_min, int pos1_max, int pos2_min, int pos2_max);
+void robot_control_get_leg_limits(int *pos1_min, int *pos1_max, int *pos2_min, int *pos2_max);
+
+/* Research: hold both leg servos at raw positions (enable=0 restores normal
+ * height/roll control). Positions are still clamped to the travel limits. */
+void robot_control_manual_legs(int enable, int pos1, int pos2);
+
 /* Research: drive both wheels at `target` (LQR_u units, clamped to +/-12) for
  * `ms` milliseconds, bypassing balance and fault handling. */
 void robot_control_manual_drive(float target, int ms);
@@ -89,6 +98,8 @@ void robot_control_wheel_sequence_arm(bool arm);
  * (wheel units), release angle (deg) and direction sign. */
 void robot_control_set_getup(int on);
 void robot_control_set_getup_params(float torque, float release_deg, int sign);
+void robot_control_set_getup_height(int height);
+int robot_control_getup_height(void);
 float robot_control_getup_torque(void);
 float robot_control_getup_release(void);
 int robot_control_getup_sign(void);

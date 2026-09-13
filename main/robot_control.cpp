@@ -179,6 +179,19 @@ static float getup_torque = 18.0f;
 static float getup_release_deg = 20.0f;
 static int getup_sign = 1;
 static int getup_ticks;
+static int getup_final_height = LEG_HEIGHT_DEFAULT;
+/* Global leg travel limits (servo counts), enforced on every leg command path
+ * (height tracking, roll correction and jumps). Runtime-adjustable so the true
+ * mechanical end stops can be found on the bench. */
+static int leg1_min = LEG_POS1_MIN;
+static int leg1_max = LEG_POS1_MAX;
+static int leg2_min = LEG_POS2_MIN;
+static int leg2_max = LEG_POS2_MAX;
+/* Research: manual leg position override. While enabled, leg_loop outputs these
+ * raw servo positions (still clamped) instead of the height/roll result. */
+static volatile bool manual_leg_enable;
+static volatile int manual_leg1;
+static volatile int manual_leg2;
 static bool arm_request;   /* reset distance zero/PIDs when go turns on */
 
 /* Runtime-tunable jump profile (defaults mirror LEG_JUMP_* in robot_config.h).
@@ -540,6 +553,18 @@ void robot_control_set_getup_params(float torque, float release_deg, int sign)
     getup_sign = (sign < 0) ? -1 : 1;
 }
 
+void robot_control_set_getup_height(int height)
+{
+    if (height >= LEG_HEIGHT_MIN && height <= LEG_HEIGHT_MAX) {
+        getup_final_height = height;
+    }
+}
+
+int robot_control_getup_height(void)
+{
+    return getup_final_height;
+}
+
 float robot_control_getup_torque(void)
 {
     return getup_torque;
@@ -887,12 +912,45 @@ static int16_t clamp_position(float value, int16_t low, int16_t high)
     return (int16_t)value;
 }
 
+void robot_control_set_leg_limits(int pos1_min, int pos1_max, int pos2_min, int pos2_max)
+{
+    if (pos1_min > 0 && pos1_min < pos1_max) {
+        leg1_min = pos1_min;
+        leg1_max = pos1_max;
+    }
+    if (pos2_min > 0 && pos2_min < pos2_max) {
+        leg2_min = pos2_min;
+        leg2_max = pos2_max;
+    }
+}
+
+void robot_control_get_leg_limits(int *pos1_min, int *pos1_max, int *pos2_min, int *pos2_max)
+{
+    if (pos1_min) *pos1_min = leg1_min;
+    if (pos1_max) *pos1_max = leg1_max;
+    if (pos2_min) *pos2_min = leg2_min;
+    if (pos2_max) *pos2_max = leg2_max;
+}
+
+void robot_control_manual_legs(int enable, int pos1, int pos2)
+{
+    if (enable) {
+        manual_leg1 = pos1;
+        manual_leg2 = pos2;
+        manual_leg_enable = true;
+    } else {
+        manual_leg_enable = false;
+    }
+}
+
 static void jump_legs_to(int height, int speed, int acc)
 {
-    int16_t p1 = (int16_t)(LEG_POSITION_CENTER + LEG_MOUNT_OFFSET +
-                           LEG_HEIGHT_STEP * (height - LEG_HEIGHT_MIN));
-    int16_t p2 = (int16_t)(LEG_POSITION_CENTER - LEG_MOUNT_OFFSET -
-                           LEG_HEIGHT_STEP * (height - LEG_HEIGHT_MIN));
+    int16_t p1 = clamp_position(LEG_POSITION_CENTER + LEG_MOUNT_OFFSET +
+                                LEG_HEIGHT_STEP * (height - LEG_HEIGHT_MIN),
+                                leg1_min, leg1_max);
+    int16_t p2 = clamp_position(LEG_POSITION_CENTER - LEG_MOUNT_OFFSET -
+                                LEG_HEIGHT_STEP * (height - LEG_HEIGHT_MIN),
+                                leg2_min, leg2_max);
     leg_output(p1, p2, speed, acc);
 }
 
@@ -931,6 +989,14 @@ static void leg_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
         return;
     }
 
+    if (manual_leg_enable) {
+        last_roll_angle = imu->angle_x;
+        leg_output(clamp_position((float)manual_leg1, leg1_min, leg1_max),
+                   clamp_position((float)manual_leg2, leg2_min, leg2_max),
+                   LEG_MOVE_SPEED, LEG_MOVE_ACC);
+        return;
+    }
+
     float roll_angle = imu->angle_x + roll_bias - (float)cmd->roll;
     last_roll_angle = imu->angle_x;
     if (fault_reason != FAULT_NONE) {
@@ -957,8 +1023,8 @@ static void leg_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
     float position1 = LEG_POSITION_CENTER + LEG_MOUNT_OFFSET + height_offset - leg_position_add;
     float position2 = LEG_POSITION_CENTER - LEG_MOUNT_OFFSET - height_offset - leg_position_add;
 
-    int16_t p1 = clamp_position(position1, LEG_POS1_MIN, LEG_POS1_MAX);
-    int16_t p2 = clamp_position(position2, LEG_POS2_MIN, LEG_POS2_MAX);
+    int16_t p1 = clamp_position(position1, leg1_min, leg1_max);
+    int16_t p2 = clamp_position(position2, leg2_min, leg2_max);
     leg_output(p1, p2, LEG_MOVE_SPEED, LEG_MOVE_ACC);
 }
 

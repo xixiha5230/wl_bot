@@ -41,16 +41,16 @@
 #define LEG_HEIGHT_MAX           80
 #define LEG_HEIGHT_DEFAULT       38
 
-/* Software travel clamp. The reference values pinned leg1 at its h38 pose
- * (MIN 2110) and leg2 at h38 (MAX 1986), clipping roll correction to one
- * direction and the height range to 38..80. Widened to cover h32..h80 plus
- * roll margin; crouch jumps already proved servo1 reaches ~2050 unharmed.
- * POS1_MIN keeps extra clearance: at full retraction the left chassis drops
- * until the wheel binds, so the clamp stops just above that point. */
-#define LEG_POS1_MIN             2060
-#define LEG_POS1_MAX             2580
-#define LEG_POS2_MIN             1510
-#define LEG_POS2_MAX             2090
+/* Global leg travel limits (servo command counts), measured on the bench:
+ *   highest from ground (h80): leg1 = 2438, leg2 = 1635  (readback)
+ *   lowest  from ground (h35): leg1 = 2062, leg2 = 2023  (readback)
+ * The servo readback is offset from the command by ~15 counts (mirrored):
+ * leg1 readback = command - 15, leg2 readback = command + 16, so the command
+ * limits below keep the readback inside the measured mechanical range. */
+#define LEG_POS1_MIN             2077
+#define LEG_POS1_MAX             2453
+#define LEG_POS2_MIN             1619
+#define LEG_POS2_MAX             2007
 
 /* Leg actuator speed/acceleration for normal height tracking and jumps. */
 #define LEG_MOVE_SPEED           200

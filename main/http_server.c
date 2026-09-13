@@ -53,6 +53,8 @@ static esp_err_t status_handler(httpd_req_t *request)
     int16_t leg1, leg2;
     int jf;
     float ax, ay, az;
+    int lim1min, lim1max, lim2min, lim2max;
+    robot_control_get_leg_limits(&lim1min, &lim1max, &lim2min, &lim2max);
     robot_control_get_jump_profile(&jh, &jl, &js, &ja, &jt);
     robot_control_get_jump_crouch(&jc, &jct);
     robot_control_get_leg_diag(&leg1, &leg2, &jf);
@@ -65,6 +67,7 @@ static esp_err_t status_handler(httpd_req_t *request)
              "\"amag\":%.2f,\"air\":%d,\"airth\":%.2f,\"airscale\":%.2f,"
              "\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,"
              "\"mt\":%d,\"mmode\":%d,\"malign\":%d,\"gstate\":%d,\"freason\":%d,"
+             "\"p1min\":%d,\"p1max\":%d,\"p2min\":%d,\"p2max\":%d,"
              "\"angle_pp\":%.2f,\"ta\":%.2f,\"tg\":%.2f,\"td\":%.2f,\"ts\":%.2f,"
              "\"leg_add\":%.1f,\"yaw\":%.1f,\"yaw_out\":%.2f,\"roll\":%.2f,"
              "\"vl\":%.2f,\"vr\":%.2f,\"gz\":%.2f,\"uptime\":%d,"
@@ -83,6 +86,7 @@ static esp_err_t status_handler(httpd_req_t *request)
              robot_control_manual_ticks(), (int)motor_foc_get_mode(),
              motor_foc_is_aligned() ? 1 : 0, robot_control_getup_state(),
              robot_control_fault_reason(),
+             lim1min, lim1max, lim2min, lim2max,
              robot_control_angle_pp(), ta, tg, td, ts,
              robot_control_leg_add(), robot_control_yaw_total(),
              robot_control_yaw_output(), robot_control_roll_angle(),
@@ -172,7 +176,42 @@ static esp_err_t set_handler(httpd_req_t *request)
         snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
                  "h=%d ", h);
     }
-    /* Multi-phase wheel sequence: ?seq=v1:ms1,v2:ms2,... (up to 8 phases). */
+    /* Global leg travel limits: ?p1min=..&p1max=..&p2min=..&p2max=.. */
+    {
+        int limits[4];
+        robot_control_get_leg_limits(&limits[0], &limits[1], &limits[2], &limits[3]);
+        bool any = false;
+        const char *const names[] = {"p1min", "p1max", "p2min", "p2max"};
+        for (int i = 0; i < 4; ++i) {
+            if (httpd_query_key_value(query, names[i], value, sizeof(value)) == ESP_OK) {
+                limits[i] = atoi(value);
+                any = true;
+            }
+        }
+        if (any) {
+            robot_control_set_leg_limits(limits[0], limits[1], limits[2], limits[3]);
+            robot_control_get_leg_limits(&limits[0], &limits[1], &limits[2], &limits[3]);
+            snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                     "leg p1[%d..%d] p2[%d..%d] ",
+                     limits[0], limits[1], limits[2], limits[3]);
+        }
+    }
+    /* Manual leg override: ?lp1=<pos1>&lp2=<pos2> holds both servos; ?lp=0 off. */
+    if (httpd_query_key_value(query, "lp1", value, sizeof(value)) == ESP_OK) {
+        int p1 = atoi(value);
+        int p2 = 2048;
+        if (httpd_query_key_value(query, "lp2", value, sizeof(value)) == ESP_OK) {
+            p2 = atoi(value);
+        }
+        robot_control_manual_legs(1, p1, p2);
+        snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                 "lp1=%d lp2=%d ", p1, p2);
+    } else if (httpd_query_key_value(query, "lp", value, sizeof(value)) == ESP_OK) {
+        if (atoi(value) == 0) {
+            robot_control_manual_legs(0, 0, 0);
+            snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied), "lp=off ");
+        }
+    }
     {
         char seq[160];
         if (httpd_query_key_value(query, "seq", seq, sizeof(seq)) == ESP_OK) {
@@ -369,14 +408,19 @@ static esp_err_t ota_handler(httpd_req_t *request)
 /* Live leg-servo positions, for jump tuning. Reads the STS bus on demand. */
 static esp_err_t servo_handler(httpd_req_t *request)
 {
-    char response[128];
+    char response[192];
     servo_sts_feedback_t f1, f2;
     esp_err_t e1 = servo_sts_read_feedback(1, &f1);
     esp_err_t e2 = servo_sts_read_feedback(2, &f2);
     snprintf(response, sizeof(response),
-             "{\"s1\":%d,\"s2\":%d,\"e1\":%d,\"e2\":%d}",
+             "{\"s1\":%d,\"s2\":%d,\"ld1\":%d,\"ld2\":%d,\"cu1\":%d,\"cu2\":%d,\"e1\":%d,\"e2\":%d}",
              e1 == ESP_OK ? f1.position : 0,
-             e2 == ESP_OK ? f2.position : 0, (int)e1, (int)e2);
+             e2 == ESP_OK ? f2.position : 0,
+             e1 == ESP_OK ? f1.load : 0,
+             e2 == ESP_OK ? f2.load : 0,
+             e1 == ESP_OK ? f1.current : 0,
+             e2 == ESP_OK ? f2.current : 0,
+             (int)e1, (int)e2);
     set_cors(request);
     httpd_resp_set_type(request, "application/json");
     return httpd_resp_send(request, response, HTTPD_RESP_USE_STRLEN);
