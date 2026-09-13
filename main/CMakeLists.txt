@@ -2,7 +2,7 @@ idf_component_register(
     SRCS
         "app_main.c"
         "board.c"
-        "wifi_ap.c"
+        "wifi_net.c"
         "http_server.c"
         "robot_state.c"
         "sensors.c"

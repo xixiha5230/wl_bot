@@ -15,8 +15,14 @@
 | 电池分压采样 | GPIO35（ADC1_CH7，分压比 3.97） |
 | 电量 LED | GPIO13 |
 
-Wi-Fi AP：SSID `WLROBOT`，密码 `12345678`，静态地址 `192.168.1.11`。
-HTTP 网页在 `http://192.168.1.11/`，WebSocket 在 `ws://192.168.1.11:81/`，状态接口 `/api/status`。
+Wi-Fi 采用 **APSTA**：
+
+- **STA**：连接家庭路由器（凭据在 `main/wifi_net.c`），通过 DHCP 获取内网 IP；
+  主机名由 mDNS 广播，可用 `http://wlrobot.local/` 访问。
+- **AP 兜底**：始终开启热点 `WLROBOT` / `12345678`，地址 `192.168.4.1`
+  （特意避开常见的 `192.168.1.x` 家庭网段）。
+
+HTTP 网页在 `/`，WebSocket 在 `:81/`，状态接口 `/api/status`，无线调参 `/api/set`。
 
 ## 架构
 
@@ -110,6 +116,9 @@ bat                        电池电压（含原始 ADC 值）
 - 高度指令经软件斜坡（`LEG_HEIGHT_SLEW`）输出，切换高度时不会瞬间冲击机身。
 - 调参建议顺序：先 `zero` 找准站立点，再 `pid angle`（刚度）、`pid gyro`（阻尼），
   最后 `pid distance` / `pid speed`（前后移动）与 `yaw_angle` / `yaw_gyro`（转向）。
+- 脱线运行时可通过 HTTP 调参（无需 USB）：
+  `http://wlrobot.local/api/set?zero=3.0`、`/api/set?pid=angle&p=1.2&i=0`、
+  `/api/set?lpf=roll&tf=0.5`、`/api/set?yaw=-1`；当前状态见 `/api/status`。
 
 ## 标定数据（`main/robot_config.h`）
 
@@ -139,3 +148,5 @@ ID1 机械行程 2030..2575，ID2 1512..2077
 - 依赖 `espressif/esp_simplefoc`、`espressif/cjson`（见 `main/idf_component.yml` 与 `dependencies.lock`）。
 - 启动时 `i2c.common: GPIO 23/5 not usable` 与 `ledc: GPIO xx not usable` 为组件保留检查的
   良性告警，不影响功能。
+- 家庭 Wi-Fi 凭据目前写死在 `main/wifi_net.c`；如需推送到公开仓库，建议改到
+  `sdkconfig` 或未纳入版本管理的本地配置。

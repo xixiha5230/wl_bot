@@ -7,7 +7,7 @@
 #include "robot_state.h"
 #include "sensors.h"
 #include "servo_sts.h"
-#include "wifi_ap.h"
+#include "wifi_net.h"
 #include "ws_server.h"
 
 #include "freertos/FreeRTOS.h"
@@ -99,7 +99,7 @@ void app_main(void)
 
     xTaskCreatePinnedToCore(servo_task, "servo_task", 4096, NULL, 3, NULL, APP_TASK_CORE);
     xTaskCreatePinnedToCore(battery_task, "battery_task", 3072, NULL, 2, NULL, APP_TASK_CORE);
-    ESP_ERROR_CHECK(wifi_ap_start());
+    ESP_ERROR_CHECK(wifi_net_start());
     ESP_ERROR_CHECK(http_server_start());
     ESP_ERROR_CHECK(ws_server_start());
 
