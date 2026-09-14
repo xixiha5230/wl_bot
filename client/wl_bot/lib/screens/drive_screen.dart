@@ -41,12 +41,19 @@ class _DriveScreenState extends State<DriveScreen> {
         _setDir('stop');
         _onJoyNorm(const (x: 0.0, y: 0.0));
       },
+      onEmergencyStop: _emergencyStop,
       onGoToggle: () => _setGo(!_conn.desired.stable),
+      onSelfRight: _selfRight,
+      onRollLevelToggle: () =>
+          _toggleRollLevel(!(_conn.status?.rollLevelOn ?? false)),
       onDirPress: _setDir,
       onDirRelease: () => _setDir('stop'),
       onHeightDelta: (delta) => setState(() {
         _conn.desired.height =
             (_conn.desired.height + delta).clamp(32, 80);
+      }),
+      onRollDelta: (delta) => setState(() {
+        _conn.desired.roll = (_conn.desired.roll + delta).clamp(-30, 30);
       }),
     );
     _gamepad.start();
@@ -125,6 +132,13 @@ class _DriveScreenState extends State<DriveScreen> {
       // The WS stable field still carries the intent.
     }
     setState(() {});
+  }
+
+  void _emergencyStop() {
+    _setDir('stop');
+    _conn.desired.joyX = 0;
+    _conn.desired.joyY = 0;
+    _setGo(false);
   }
 
   Future<void> _selfRight() async {
@@ -329,6 +343,11 @@ class _DriveScreenState extends State<DriveScreen> {
               visualDensity: VisualDensity.compact,
             ),
             IconButton(
+              tooltip: 'Gamepad mappings',
+              icon: const Icon(Icons.videogame_asset),
+              onPressed: _showGamepadHelp,
+            ),
+            IconButton(
               tooltip: 'Settings',
               icon: const Icon(Icons.tune),
               onPressed: () => _openSettings(context),
@@ -529,14 +548,7 @@ class _DriveScreenState extends State<DriveScreen> {
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
-            onPressed: _conn.isConnected
-                ? () {
-                    _setDir('stop');
-                    _conn.desired.joyX = 0;
-                    _conn.desired.joyY = 0;
-                    _setGo(false);
-                  }
-                : null,
+            onPressed: _conn.isConnected ? _emergencyStop : null,
             icon: const Icon(Icons.emergency),
             label: const Text('STOP'),
           ),
@@ -581,6 +593,68 @@ class _DriveScreenState extends State<DriveScreen> {
               icon: Icon(levelOn ? Icons.straighten : Icons.straighten_outlined),
               label: Text(levelOn ? 'LEVEL ON' : 'LEVEL OFF'),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showGamepadHelp() {
+    const rows = <(String, String)>[
+      ('Left stick', 'Drive (joystick)'),
+      ('D-pad', 'Direction: forward / back / left / right'),
+      ('A / Cross', 'Jump'),
+      ('B / Circle', 'Stop motion'),
+      ('X / Square', 'Toggle roll auto-level'),
+      ('Y / Triangle', 'Self-right (get up)'),
+      ('Start / Menu', 'Toggle GO'),
+      ('Back / Share', 'Emergency stop (GO off)'),
+      ('RT / LT', 'Height up / down'),
+      ('RB / LB', 'Roll right / left'),
+      ('Right stick', 'Height (Y) and roll (X) trim'),
+    ];
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Gamepad'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Keeps working while the app is in the background.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF6F7B8A)),
+              ),
+              const SizedBox(height: 12),
+              for (final (button, action) in rows)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 110,
+                        child: Text(button,
+                            style: const TextStyle(fontSize: 13)),
+                      ),
+                      Expanded(
+                        child: Text(
+                          action,
+                          style: const TextStyle(
+                              fontSize: 13, color: Color(0xFF8B97A6)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
           ),
         ],
       ),

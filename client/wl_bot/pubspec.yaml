@@ -23,3 +23,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+# Local fix for the macOS gamepad plugin: enumerate already-connected pads,
+# discover wireless ones and keep sending input while the app is in the
+# background. See third_party/gamepads_darwin/README.md.
+dependency_overrides:
+  gamepads_darwin:
+    path: third_party/gamepads_darwin

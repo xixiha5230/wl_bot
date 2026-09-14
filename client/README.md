@@ -11,9 +11,15 @@ from one Flutter codebase. Speaks the robot's LAN protocol directly
   sliders, GO/STOP, **GET UP** (self-right) and **LEVEL** (roll auto-level)
   toggles, live status + battery gauge + latency readout, plus roll/rb/amag
   telemetry and AIR / GETTING UP / FAULT pills.
-- Physical gamepads (Xbox/PS layout): left stick, A=jump, B=stop,
-  Start=GO toggle, D-pad, RT/LT = height. Keyboard works everywhere
-  (WASD/arrows, Space=jump, X/Esc=stop).
+- Physical gamepads (Xbox/PS layout): left stick drives, A=jump, B=stop motion,
+  X=toggle roll auto-level, Y=self-right, Start=GO toggle, Back=emergency stop,
+  D-pad=direction, RT/LT=height, RB/LB=roll, right stick=height/roll trim.
+  **Input keeps working while the app is in the background.** Keyboard works
+  everywhere (WASD/arrows, Space=jump, X/Esc=stop). The in-app gamepad button
+  shows the full mapping.
+  On macOS this needs a small patch to the upstream plugin (already-connected
+  pads, wireless discovery, background events) vendored at
+  `wl_bot/third_party/gamepads_darwin` and wired in via `dependency_overrides`.
 - LAN discovery: /24 subnet scan with battery/state preview, tap to connect,
   plus remembered-host history.
 - Settings: PID / LPF / balance zero / yaw / gyro cal / full jump profile /
