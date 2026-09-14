@@ -216,6 +216,9 @@ static int bump_leg;                  /* 1 left, 2 right */
 static int bump_amp = LEG_BUMP_AMP;   /* extension in servo counts */
 static int bump_ticks = LEG_BUMP_TICKS;  /* hold time in ms */
 static int bump_speed = LEG_BUMP_SPEED;  /* STS goal speed, 0 = max */
+/* One-shot request (from the HTTP task) to clear the roll/yaw integrators and
+ * re-zero the yaw heading hold. Consumed by the control task. */
+static volatile bool attitude_reset_request;
 
 /* Attitude/battery fault latch: motors are disabled and stay off until the
  * operator commands go=1 again once the fault condition has cleared. */
@@ -747,6 +750,11 @@ int robot_control_manual_legs_active(void)
     return manual_leg_enable ? 1 : 0;
 }
 
+void robot_control_reset_attitude(void)
+{
+    attitude_reset_request = true;
+}
+
 /* Last leg positions commanded to the servos and the jump state machine flag,
  * for diagnosing whether a jump command reaches the servos. */
 void robot_control_get_leg_diag(int16_t *target1, int16_t *target2, int *jump_state)
@@ -870,6 +878,11 @@ static void lqr_balance_loop(const motor_feedback_t *left, const motor_feedback_
          * so enabling balance does not produce a large distance kick. */
         distance_zeropoint = LQR_distance;
         reset_pids();
+        /* Hold the heading at the moment GO is enabled: the yaw accumulator
+         * keeps integrating while disarmed (a fall, the robot being carried),
+         * and unwinding it makes the robot spin on start-up. */
+        YAW_angle_total = 0.0f;
+        YAW_angle_last = YAW_angle;
         arm_request = false;
     }
 
@@ -1068,6 +1081,17 @@ static bool bump_loop(const mpu6050_sample_t *imu)
 
 static void leg_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
 {
+    if (attitude_reset_request) {
+        attitude_reset_request = false;
+        pid_roll_angle.reset();
+        pid_yaw_angle.reset();
+        pid_yaw_gyro.reset();
+        leg_position_add = 0.0f;
+        /* Hold the heading the robot has right now instead of unwinding
+         * whatever accumulated while it was disarmed or being carried. */
+        YAW_angle_total = 0.0f;
+        YAW_angle_last = YAW_angle;
+    }
     jump_loop(cmd);
     if (jump_flag != 0) {
         return;

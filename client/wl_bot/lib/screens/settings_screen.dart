@@ -460,9 +460,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: const Text('Right bump'),
                     ),
                     OutlinedButton(
-                      onPressed: () => _apply(
-                          {'lp': '0', 'h': _height.text.isEmpty ? '38' : _height.text},
-                          'reset to default'),
+                      onPressed: () => _apply({'reset': '1'}, 'reset to default'),
                       child: const Text('Reset'),
                     ),
                   ]),

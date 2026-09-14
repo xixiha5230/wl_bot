@@ -7,6 +7,7 @@
 #include "esp_timer.h"
 #include "motor_foc.h"
 #include "ota.h"
+#include "robot_config.h"
 #include "robot_control.h"
 #include "robot_state.h"
 #include "sensors.h"
@@ -255,6 +256,19 @@ static esp_err_t set_handler(httpd_req_t *request)
         robot_control_set_bump(leg);
         snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
                  "bump=%d ", leg);
+    }
+    /* Return to the default standing pose: release manual legs, drop height and
+     * roll to the defaults, stop, and clear the roll/yaw integrators so the legs
+     * snap back symmetric and the robot holds its current heading. */
+    if (httpd_query_key_value(query, "reset", value, sizeof(value)) == ESP_OK &&
+        atoi(value) != 0) {
+        robot_control_manual_legs(0, 0, 0);
+        robot_control_set_height(LEG_HEIGHT_DEFAULT);
+        robot_control_set_roll(0);
+        robot_control_set_dir(ROBOT_STOP);
+        robot_control_reset_attitude();
+        snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                 "reset(h=%d) ", LEG_HEIGHT_DEFAULT);
     }
     {
         char seq[160];

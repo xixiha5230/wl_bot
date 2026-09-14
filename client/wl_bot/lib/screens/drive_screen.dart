@@ -176,7 +176,8 @@ class _DriveScreenState extends State<DriveScreen> {
   }
 
   /// Return to the original standing state: stop moving, release any manual leg
-  /// hold (so height and roll control are live again) and reset the height.
+  /// hold, reset the height, and clear the roll/yaw integrators in the firmware
+  /// so the legs snap back symmetric and the robot holds its current heading.
   Future<void> _resetToDefault() async {
     _setDir('stop');
     _conn.desired.joyX = 0;
@@ -186,7 +187,7 @@ class _DriveScreenState extends State<DriveScreen> {
       _conn.desired.roll = 0;
     });
     try {
-      await _conn.apiSet({'lp': '0', 'h': '$_defaultHeight'});
+      await _conn.apiSet({'reset': '1'});
       _snack('reset to default');
     } catch (e) {
       _snack('reset failed: $e');

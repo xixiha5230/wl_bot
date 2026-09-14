@@ -91,6 +91,11 @@ void robot_control_set_bump_params(int amp, int ticks, int speed);
 void robot_control_get_bump_params(int *amp, int *ticks, int *speed);
 int robot_control_bump_state(void);
 
+/* One-shot "return to default standing pose": releases any manual leg hold,
+ * drops the height/roll command to the defaults and clears the roll + yaw
+ * integrators so the legs snap back to their symmetric pose. */
+void robot_control_reset_attitude(void);
+
 /* Research: drive both wheels at `target` (LQR_u units, clamped to +/-12) for
  * `ms` milliseconds, bypassing balance and fault handling. */
 void robot_control_manual_drive(float target, int ms);
