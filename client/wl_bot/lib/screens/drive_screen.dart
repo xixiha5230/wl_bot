@@ -191,13 +191,12 @@ class _DriveScreenState extends State<DriveScreen> {
   Future<void> _resetToDefault() async {
     _setDir('stop');
     _onJoyNorm(const (x: 0.0, y: 0.0));
-    _setGo(false);
     setState(() {
-      _conn.desired.height = 100;
+      _conn.desired.height = 32;
       _conn.desired.roll = 0;
     });
     try {
-      await _conn.apiSet({'h': '100', 'lp1': '2265', 'lp2': '1813'});
+      await _conn.apiSet({'h': '32', 'lp1': '2265', 'lp2': '1813'});
     } catch (_) {
       // ignore
     }
