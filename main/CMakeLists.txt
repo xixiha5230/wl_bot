@@ -31,10 +31,25 @@ idf_component_register(
         espressif__esp_simplefoc
 )
 
-# Wi-Fi credentials are taken from the environment at configure time so they
-# never have to live in the repository, e.g.
+# Wi-Fi credentials come from the repo-root .env file (see .env.example) and/or
+# the environment at configure time, so they never have to live in the
+# repository, e.g.
 #   WLROBOT_WIFI_SSID=my-net WLROBOT_WIFI_PASSWORD=secret tools/ota.sh
-# Anything not set falls back to the default in wifi_net.c.
+# Real environment variables win over .env; anything unset falls back to the
+# default in wifi_net.c.
+set(_env_file "${CMAKE_CURRENT_LIST_DIR}/../.env")
+if(EXISTS "${_env_file}")
+    file(STRINGS "${_env_file}" _env_lines)
+    foreach(_line IN LISTS _env_lines)
+        if(_line MATCHES "^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+            set(_name "${CMAKE_MATCH_1}")
+            if(NOT DEFINED ENV{${_name}})
+                set(ENV{${_name}} "${CMAKE_MATCH_2}")
+            endif()
+        endif()
+    endforeach()
+endif()
+
 if(DEFINED ENV{WLROBOT_WIFI_SSID})
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
         "WIFI_STA_SSID=\"$ENV{WLROBOT_WIFI_SSID}\"")

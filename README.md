@@ -17,20 +17,28 @@
 
 Wi-Fi 采用 **APSTA**：
 
-- **STA**：连接家庭路由器（凭据由**构建时环境变量**提供，见下），通过 DHCP
-  获取内网 IP；主机名由 mDNS 广播，可用 `http://wlrobot.local/` 访问。
+- **STA**：连接家庭路由器（凭据由构建时的 `.env` / 环境变量提供，见下），通过
+  DHCP 获取内网 IP；主机名由 mDNS 广播，可用 `http://wlrobot.local/` 访问。
 - **AP 兜底**：始终开启热点 `WLROBOT` / `12345678`，地址 `192.168.4.1`
   （特意避开常见的 `192.168.1.x` 家庭网段）。
 
-Wi-Fi 凭据（不进仓库）：
+Wi-Fi 凭据（不进仓库）。推荐在仓库根目录放一个 **`.env`**（已 gitignore）：
 
 ```bash
-WLROBOT_WIFI_SSID=你的SSID WLROBOT_WIFI_PASSWORD=你的密码 idf.py build
-# 或直接传给 OTA 脚本，一次构建+烧录：
+cp .env.example .env
+# 编辑 .env，填入你的 SSID / 密码
+WLROBOT_WIFI_SSID=你的SSID
+WLROBOT_WIFI_PASSWORD=你的密码
+```
+
+构建时 `main/CMakeLists.txt` 会自动读取 `.env`。也可以直接用环境变量（**优先于
+`.env`**）：
+
+```bash
 WLROBOT_WIFI_SSID=你的SSID WLROBOT_WIFI_PASSWORD=你的密码 tools/ota.sh
 ```
 
-未设置时使用 `main/wifi_net.c` 里的占位默认值（`wlrobot-setup`，空密码，
+都没提供时使用 `main/wifi_net.c` 里的占位默认值（`wlrobot-setup`，空密码，
 连不上真实网络，只会保留 AP 兜底）。AP 也支持 `WLROBOT_AP_SSID` /
 `WLROBOT_AP_PASSWORD` 覆盖。
 

@@ -4,6 +4,9 @@ sdkconfig
 sdkconfig.old
 compile_commands.json
 
+# Local build secrets (Wi-Fi credentials); see .env.example
+.env
+
 # Managed components are restored by idf.py from dependencies.lock
 managed_components/
 
