@@ -66,6 +66,15 @@
  * leg motion does not kick the chassis hard enough to lose balance. */
 #define LEG_HEIGHT_SLEW          0.15f
 
+/* One-shot leg bump ("iron mountain lean" / 抖肩): quickly extend one leg then
+ * hand back to the normal height loop. amp = extension in servo counts,
+ * ticks = hold time in control ticks (1 ms), speed = STS goal speed (0 = max).
+ * Runtime-tunable as bumpamp / bumpms / bumpspeed. Because it is a timed pulse
+ * it can never latch a hold that would freeze height/roll control. */
+#define LEG_BUMP_AMP             60
+#define LEG_BUMP_TICKS           140
+#define LEG_BUMP_SPEED           0
+
 /*
  * Balance zero point vs leg height. Changing the leg extension moves the CoM,
  * so the chassis tilt at which the robot balances changes too. Measured on this

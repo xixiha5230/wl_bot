@@ -130,6 +130,7 @@ class RobotConnection extends ChangeNotifier {
     _error = '';
     _setState(LinkState.connected);
     _adoptFromStatus();
+    unawaited(_clearStaleManualLegs());
     _lastSent = null;
     _sendTimer?.cancel();
     _sendTimer = Timer.periodic(sendInterval, (_) => _pump());
@@ -228,6 +229,17 @@ class RobotConnection extends ChangeNotifier {
     }
     _desired.adopt(s);
     notifyListeners();
+  }
+
+  /// The research manual-leg hold latches in the firmware until `lp=0`. If a
+  /// previous session left it on, height and roll control look dead, so clear
+  /// it on every fresh link to guarantee normal control comes back.
+  Future<void> _clearStaleManualLegs() async {
+    try {
+      await apiSet({'lp': '0'});
+    } catch (_) {
+      // Best effort: never block the link on this.
+    }
   }
 
   static String _normalizeHost(String raw) {

@@ -37,10 +37,6 @@ class _DriveScreenState extends State<DriveScreen> {
     _gamepad = GamepadService(
       onJoy: _onJoyNorm,
       onJump: () => _setDir('jump'),
-      onStopCmd: () {
-        _setDir('stop');
-        _onJoyNorm(const (x: 0.0, y: 0.0));
-      },
       onEmergencyStop: _emergencyStop,
       onGoToggle: () => _setGo(!_conn.desired.stable),
       onSelfRight: _selfRight,
@@ -161,44 +157,39 @@ class _DriveScreenState extends State<DriveScreen> {
     }
   }
 
-  bool _legBumpBusy = false;
+  /// Firmware's LEG_HEIGHT_DEFAULT, used as the "original state" height.
+  static const int _defaultHeight = 38;
 
-  /// Quick extend one leg then retract ("iron mountain lean" / 铁山靠).
-  /// [leg] = 1 for left, 2 for right.
+  /// One-shot leg bump ("iron mountain lean" / 抖肩). The firmware extends one
+  /// leg for a short pulse and hands back to the height loop by itself, so this
+  /// is a single request and can never leave the legs stuck in a manual hold.
+  /// [leg] 1 = left, 2 = right.
   Future<void> _legBump(int leg) async {
-    if (_legBumpBusy) return;
-    _legBumpBusy = true;
+    if (!_conn.isConnected) {
+      return;
+    }
     try {
-      final s = _conn.status;
-      if (s == null) return;
-      final cur = leg == 1 ? s.legTarget1 : s.legTarget2;
-      final lo = leg == 1 ? s.p1min : s.p2min;
-      final hi = leg == 1 ? s.p1max : s.p2max;
-      const bump = 30;
-      final extended = (cur + bump).clamp(lo, hi);
-      final param = leg == 1 ? 'lp1' : 'lp2';
-      await _conn.apiSet({param: extended.toString()});
-      await Future.delayed(const Duration(milliseconds: 60));
-      await _conn.apiSet({param: cur.toString()});
-    } catch (_) {
-      // ignore
-    } finally {
-      _legBumpBusy = false;
+      await _conn.apiSet({'bump': '$leg'});
+    } catch (e) {
+      _snack('leg bump failed: $e');
     }
   }
 
-  /// Stop everything and return to the default standing posture.
+  /// Return to the original standing state: stop moving, release any manual leg
+  /// hold (so height and roll control are live again) and reset the height.
   Future<void> _resetToDefault() async {
     _setDir('stop');
-    _onJoyNorm(const (x: 0.0, y: 0.0));
+    _conn.desired.joyX = 0;
+    _conn.desired.joyY = 0;
     setState(() {
-      _conn.desired.height = 32;
+      _conn.desired.height = _defaultHeight;
       _conn.desired.roll = 0;
     });
     try {
-      await _conn.apiSet({'h': '32', 'lp1': '2265', 'lp2': '1813'});
-    } catch (_) {
-      // ignore
+      await _conn.apiSet({'lp': '0', 'h': '$_defaultHeight'});
+      _snack('reset to default');
+    } catch (e) {
+      _snack('reset failed: $e');
     }
   }
 
@@ -440,6 +431,10 @@ class _DriveScreenState extends State<DriveScreen> {
                       if (s.air) ...[
                         const SizedBox(width: 6),
                         const _Pill('AIR', Color(0xFF2F6FED)),
+                      ],
+                      if (s.manualLegs) ...[
+                        const SizedBox(width: 6),
+                        const _Pill('LEGS MANUAL', Color(0xFFB3382F)),
                       ],
                       const Spacer(),
                       BatteryGauge(voltage: s.battery),

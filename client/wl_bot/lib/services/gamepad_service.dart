@@ -11,15 +11,15 @@ typedef JoyVector = ({double x, double y});
 ///
 ///   left stick    -> drive joystick (dead zone + rescale, as the touch pad)
 ///   A / Cross     -> jump
-///   B / Circle    -> reset to default state (stop + height 100 + legs centered)
+///   B / Circle    -> reset to the default standing state (stop + release legs)
 ///   X / Square    -> toggle roll auto-level
 ///   Y / Triangle  -> self-right (get up)
 ///   Start / Menu  -> toggle GO
 ///   Back / Share  -> emergency stop (stop + GO off)
 ///   D-pad         -> momentary direction commands
 ///   RT / LT       -> height up / down while held
-///   RB            -> right leg "iron mountain lean" bump
-///   LB            -> left leg "iron mountain lean" bump
+///   RB            -> right leg bump ("iron mountain lean")
+///   LB            -> left leg bump ("iron mountain lean")
 ///   right stick   -> height (Y) and roll (X) trim
 ///
 /// Silently no-ops on platforms without gamepad support.
@@ -27,7 +27,6 @@ class GamepadService {
   GamepadService({
     required this.onJoy,
     required this.onJump,
-    required this.onStopCmd,
     required this.onEmergencyStop,
     required this.onGoToggle,
     required this.onSelfRight,
@@ -42,7 +41,6 @@ class GamepadService {
 
   final void Function(JoyVector joy) onJoy;
   final void Function() onJump;
-  final void Function() onStopCmd;
   final void Function() onEmergencyStop;
   final void Function() onGoToggle;
   final void Function() onSelfRight;
@@ -51,6 +49,8 @@ class GamepadService {
   final void Function() onDirRelease;
   final void Function(int delta) onHeightDelta;
   final void Function(int delta) onRollDelta;
+
+  /// One-shot leg bump: 1 = left leg, 2 = right leg.
   final void Function(int leg) onLegBump;
   final void Function() onResetToDefault;
 
@@ -169,7 +169,7 @@ class GamepadService {
       _rightX.abs() > _trimThreshold ||
       _rightY.abs() > _trimThreshold;
 
-  /// Steps height/roll while a trim input is held, so triggers and the
+  /// Steps height/roll while a trim input is held, so the triggers and the
   /// right stick behave like the on-screen sliders.
   void _ensureTrimTimer() {
     if (_trimTimer != null) {

@@ -207,6 +207,16 @@ static int jump_land_ticks = 32;
 static int jump_crouch = 34;
 static int jump_crouch_ticks = 150;
 
+/* One-shot leg bump (shoulder buttons): quickly extend one leg then return to
+ * the normal height loop. Purely a timed pulse, so it can never latch a manual
+ * override that would freeze height/roll control. */
+static volatile int bump_request;     /* 0 idle, 1 left, 2 right */
+static int bump_flag;                 /* runtime state machine, 0 idle */
+static int bump_leg;                  /* 1 left, 2 right */
+static int bump_amp = LEG_BUMP_AMP;   /* extension in servo counts */
+static int bump_ticks = LEG_BUMP_TICKS;  /* hold time in ms */
+static int bump_speed = LEG_BUMP_SPEED;  /* STS goal speed, 0 = max */
+
 /* Attitude/battery fault latch: motors are disabled and stay off until the
  * operator commands go=1 again once the fault condition has cleared. */
 typedef enum {
@@ -360,6 +370,9 @@ void robot_control_set_go(bool go)
 
 void robot_control_set_height(int height)
 {
+    /* Any height command means "drive the legs normally": drop a stale manual
+     * hold so the operator can always recover control over Wi-Fi. */
+    manual_leg_enable = false;
     portENTER_CRITICAL(&cmd_mux);
     command.height = height;
     portEXIT_CRITICAL(&cmd_mux);
@@ -699,6 +712,41 @@ void robot_control_get_jump_crouch(int *height, int *ticks)
     if (ticks) *ticks = jump_crouch_ticks;
 }
 
+void robot_control_set_bump(int leg)
+{
+    if (leg == 1 || leg == 2) {
+        manual_leg_enable = false;   /* a bump always returns to normal control */
+        bump_request = leg;
+    } else {
+        bump_request = 0;
+        bump_flag = 0;
+    }
+}
+
+void robot_control_set_bump_params(int amp, int ticks, int speed)
+{
+    if (amp > 0 && amp <= 400) bump_amp = amp;
+    if (ticks > 0 && ticks <= 2000) bump_ticks = ticks;
+    if (speed >= 0 && speed <= 3400) bump_speed = speed;
+}
+
+void robot_control_get_bump_params(int *amp, int *ticks, int *speed)
+{
+    if (amp) *amp = bump_amp;
+    if (ticks) *ticks = bump_ticks;
+    if (speed) *speed = bump_speed;
+}
+
+int robot_control_bump_state(void)
+{
+    return bump_flag ? bump_leg : 0;
+}
+
+int robot_control_manual_legs_active(void)
+{
+    return manual_leg_enable ? 1 : 0;
+}
+
 /* Last leg positions commanded to the servos and the jump state machine flag,
  * for diagnosing whether a jump command reaches the servos. */
 void robot_control_get_leg_diag(int16_t *target1, int16_t *target2, int *jump_state)
@@ -983,10 +1031,49 @@ static void jump_loop(const robot_command_t *cmd)
     }
 }
 
+/* Timed one-leg extension. Reuses the height-based pose (roll correction is
+ * skipped for the pulse) and offsets the selected leg outward. When the pulse
+ * ends the normal loop resumes and the leg slews back. Returns true while the
+ * pulse owns the leg output. */
+static bool bump_loop(const mpu6050_sample_t *imu)
+{
+    if (bump_request != 0 && bump_flag == 0) {
+        bump_leg = bump_request;
+        bump_request = 0;
+        bump_flag = 1;
+        manual_leg_enable = false;
+    }
+    if (bump_flag == 0) {
+        return false;
+    }
+    last_roll_angle = imu->angle_x;
+    if (bump_flag > bump_ticks) {
+        bump_flag = 0;
+        return false;   /* pulse finished, resume normal control this tick */
+    }
+    bump_flag++;
+    const float height_offset = LEG_HEIGHT_STEP * (leg_height_cmd - LEG_HEIGHT_MIN);
+    float position1 = LEG_POSITION_CENTER + LEG_MOUNT_OFFSET + height_offset;
+    float position2 = LEG_POSITION_CENTER - LEG_MOUNT_OFFSET - height_offset;
+    if (bump_leg == 1) {
+        position1 += (float)bump_amp;   /* extend the left leg */
+    } else {
+        position2 -= (float)bump_amp;   /* extend the right leg (mirrored) */
+    }
+    leg_output(clamp_position(position1, leg1_min, leg1_max),
+               clamp_position(position2, leg2_min, leg2_max),
+               (uint16_t)bump_speed, LEG_MOVE_ACC);
+    return true;
+}
+
 static void leg_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
 {
     jump_loop(cmd);
     if (jump_flag != 0) {
+        return;
+    }
+
+    if (bump_loop(imu)) {
         return;
     }
 

@@ -79,6 +79,17 @@ void robot_control_get_leg_limits(int *pos1_min, int *pos1_max, int *pos2_min, i
 /* Research: hold both leg servos at raw positions (enable=0 restores normal
  * height/roll control). Positions are still clamped to the travel limits. */
 void robot_control_manual_legs(int enable, int pos1, int pos2);
+/* 1 while the manual-leg hold above is latched. */
+int robot_control_manual_legs_active(void);
+
+/* One-shot leg bump ("iron mountain lean"): briefly extend one leg then hand
+ * back to normal height/roll control automatically. [leg] 1 = left, 2 = right;
+ * 0 cancels. Params: amp (servo counts), ticks (ms), speed (0 = max).
+ * Safe by construction: it is a timed pulse, so it never latches a manual hold. */
+void robot_control_set_bump(int leg);
+void robot_control_set_bump_params(int amp, int ticks, int speed);
+void robot_control_get_bump_params(int *amp, int *ticks, int *speed);
+int robot_control_bump_state(void);
 
 /* Research: drive both wheels at `target` (LQR_u units, clamped to +/-12) for
  * `ms` milliseconds, bypassing balance and fault handling. */

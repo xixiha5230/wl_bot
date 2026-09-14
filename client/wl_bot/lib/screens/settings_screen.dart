@@ -44,6 +44,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _lp2 = TextEditingController();
   final _height = TextEditingController();
 
+  final _bumpAmp = TextEditingController();
+  final _bumpMs = TextEditingController();
+  final _bumpSpeed = TextEditingController();
+
   final _gTorque = TextEditingController();
   final _gRelease = TextEditingController();
   final _gSign = TextEditingController();
@@ -71,6 +75,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _jh, _jl, _js, _jacc, _jlt, _jc, _jct, _otaUrl,
       _rb, _faultDeg, _airThresh, _airScale,
       _p1min, _p1max, _p2min, _p2max, _lp1, _lp2, _height,
+      _bumpAmp, _bumpMs, _bumpSpeed,
       _gTorque, _gRelease, _gSign,
       _wdrive, _wms, _seq,
     ]) {
@@ -411,6 +416,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     OutlinedButton(
                       onPressed: () => _apply({'lp': '0'}, 'legs released'),
                       child: const Text('Release'),
+                    ),
+                  ]),
+                ],
+              ),
+              _card(
+                title: 'Leg bump (铁山靠)',
+                subtitle: status == null
+                    ? null
+                    : 'running=${status.bumpLeg}  '
+                        'amp=${status.bumpAmp} ms=${status.bumpMs} '
+                        'speed=${status.bumpSpeed}  '
+                        '${status.manualLegs ? 'LEGS MANUAL' : 'control live'}',
+                children: [
+                  const Text(
+                    'Extends one leg for a short pulse, then hands back to the '
+                    'height loop automatically. speed 0 = max.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF6F7B8A)),
+                  ),
+                  const SizedBox(height: 8),
+                  _row([
+                    _field(_bumpAmp, 'amp (${status?.bumpAmp ?? 60})'),
+                    _field(_bumpMs, 'ms (${status?.bumpMs ?? 140})'),
+                    _field(_bumpSpeed, 'speed (${status?.bumpSpeed ?? 0})'),
+                  ]),
+                  const SizedBox(height: 8),
+                  FilledButton(
+                    onPressed: () => _apply({
+                      if (_bumpAmp.text.isNotEmpty) 'bumpamp': _bumpAmp.text,
+                      if (_bumpMs.text.isNotEmpty) 'bumpms': _bumpMs.text,
+                      if (_bumpSpeed.text.isNotEmpty) 'bumpspeed': _bumpSpeed.text,
+                    }, 'bump params applied'),
+                    child: const Text('Apply bump params'),
+                  ),
+                  const SizedBox(height: 8),
+                  _row([
+                    OutlinedButton(
+                      onPressed: () => _apply({'bump': '1'}, 'left leg bump'),
+                      child: const Text('Left bump'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () => _apply({'bump': '2'}, 'right leg bump'),
+                      child: const Text('Right bump'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () => _apply(
+                          {'lp': '0', 'h': _height.text.isEmpty ? '38' : _height.text},
+                          'reset to default'),
+                      child: const Text('Reset'),
                     ),
                   ]),
                 ],

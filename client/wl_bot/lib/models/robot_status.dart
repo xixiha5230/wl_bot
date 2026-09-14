@@ -57,6 +57,11 @@ class RobotStatus {
     this.legTarget1 = 0,
     this.legTarget2 = 0,
     this.jumpState = 0,
+    this.manualLegs = false,
+    this.bumpLeg = 0,
+    this.bumpAmp = 60,
+    this.bumpMs = 140,
+    this.bumpSpeed = 0,
     this.latencyMs = 0,
   });
 
@@ -114,6 +119,19 @@ class RobotStatus {
   final int legTarget1;
   final int legTarget2;
   final int jumpState;
+
+  /// Research manual-leg hold latched in the firmware. Non-zero means height
+  /// and roll correction are bypassed, so the leg controls look dead.
+  final bool manualLegs;
+
+  /// One-shot leg bump currently running: 0 idle, 1 left, 2 right.
+  final int bumpLeg;
+
+  /// Leg bump tuning (extension counts, hold time ms, STS speed 0 = max).
+  final int bumpAmp;
+  final int bumpMs;
+  final int bumpSpeed;
+
   final int latencyMs;
 
   bool get rollLevelOn => rollMode != 0;
@@ -122,6 +140,9 @@ class RobotStatus {
 
   /// Jump gait state exposed by the firmware (0 = idle).
   bool get jumping => jumpState != 0;
+
+  /// Leg bump currently running (LB/RB "iron mountain lean").
+  bool get bumping => bumpLeg != 0;
 
   /// 0 none, 1 attitude, 2 battery.
   String get faultReasonName => switch (faultReason) {
@@ -195,6 +216,11 @@ class RobotStatus {
       legTarget1: _i(json, 'lt1', 0),
       legTarget2: _i(json, 'lt2', 0),
       jumpState: _i(json, 'jf', 0),
+      manualLegs: _b(json, 'manleg'),
+      bumpLeg: _i(json, 'bump', 0),
+      bumpAmp: _i(json, 'bamp', 60),
+      bumpMs: _i(json, 'bms', 140),
+      bumpSpeed: _i(json, 'bspd', 0),
       latencyMs: latencyMs,
     );
   }

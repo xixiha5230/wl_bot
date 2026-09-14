@@ -98,6 +98,11 @@ void main() {
       'lt1': 2110,
       'lt2': 1985,
       'jf': 0,
+      'manleg': 1,
+      'bump': 2,
+      'bamp': 60,
+      'bms': 140,
+      'bspd': 0,
     };
     final s = RobotStatus.fromJson(payload);
     expect(s.rollMode, 0);
@@ -110,5 +115,20 @@ void main() {
     expect(s.p1min, 2077);
     expect(s.p2max, 2007);
     expect(s.legTarget1, 2110);
+    expect(s.manualLegs, isTrue);
+    expect(s.bumpLeg, 2);
+    expect(s.bumping, isTrue);
+    expect(s.bumpAmp, 60);
+    expect(s.bumpMs, 140);
+  });
+
+  test('RobotStatus defaults the bump fields to idle', () {
+    final s = RobotStatus.fromJson(const {});
+    expect(s.manualLegs, isFalse);
+    expect(s.bumpLeg, 0);
+    expect(s.bumping, isFalse);
+    expect(s.bumpAmp, 60);
+    expect(s.bumpMs, 140);
+    expect(s.bumpSpeed, 0);
   });
 }
