@@ -25,8 +25,16 @@ void main() {
     });
   });
 
-  test('RobotStatus parses the firmware status payload', () {
-    final payload = <String, dynamic>{
+  test('DriveCommand.adopt keeps go on for a balancing robot', () {
+    final cmd = DriveCommand();
+    expect(cmd.stable, isFalse);
+    cmd.adopt(RobotStatus.fromJson(const {'go': 1, 'height': 52}));
+    expect(cmd.stable, isTrue);
+    expect(cmd.height, 52);
+    expect(cmd.toJson()['stable'], 1);
+  });
+
+  test('RobotStatus parses the firmware status payload', () {    final payload = <String, dynamic>{
       'state': 'running',
       'battery': 8.13,
       'go': 1,

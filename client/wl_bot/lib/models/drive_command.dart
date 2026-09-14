@@ -1,3 +1,5 @@
+import 'robot_status.dart';
+
 /// Desired robot command, mirrored 1:1 from the firmware's WS protocol
 /// (ws_server.c handle_basic_json). The connection layer serializes this
 /// to JSON at a fixed rate.
@@ -18,6 +20,16 @@ class DriveCommand {
   bool stable;
   int joyX;
   int joyY;
+
+  /// Adopt the robot's live state so a fresh connection does not fight what it
+  /// is already doing. `stable` mirrors the firmware `go` flag; leaving it at
+  /// the default OFF would disengage the balance loop and drop a standing
+  /// robot. `roll` is deliberately not adopted: the status field is the
+  /// measured angle, not the slider target.
+  void adopt(RobotStatus status) {
+    stable = status.go;
+    height = status.height;
+  }
 
   bool equalsTo(DriveCommand o) =>
       dir == o.dir &&

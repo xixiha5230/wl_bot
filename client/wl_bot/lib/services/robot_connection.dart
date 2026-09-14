@@ -129,6 +129,7 @@ class RobotConnection extends ChangeNotifier {
 
     _error = '';
     _setState(LinkState.connected);
+    _adoptFromStatus();
     _lastSent = null;
     _sendTimer?.cancel();
     _sendTimer = Timer.periodic(sendInterval, (_) => _pump());
@@ -212,6 +213,20 @@ class RobotConnection extends ChangeNotifier {
       return;
     }
     _state = s;
+    notifyListeners();
+  }
+
+  /// Seed the outgoing command from the robot's live state so connecting does
+  /// not fight what it is already doing. `stable` maps to the firmware's `go`
+  /// flag, and the default (false) would drop a robot that was balancing.
+  /// `roll` is deliberately not adopted: the status field is the measured
+  /// angle (last_roll_angle), not the slider target.
+  void _adoptFromStatus() {
+    final s = _status;
+    if (s == null) {
+      return;
+    }
+    _desired.adopt(s);
     notifyListeners();
   }
 
