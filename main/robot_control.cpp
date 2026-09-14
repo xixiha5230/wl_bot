@@ -479,8 +479,8 @@ void robot_control_get_accel(float *x, float *y, float *z)
 
 void robot_control_manual_drive(float target, int ms)
 {
-    if (target < -12.0f) target = -12.0f;
-    if (target > 12.0f) target = 12.0f;
+    if (target < -30.0f) target = -30.0f;
+    if (target > 30.0f) target = 30.0f;
     if (ms < 0) ms = 0;
     if (ms > 3000) ms = 3000;
     manual_target = target;
@@ -499,8 +499,8 @@ void robot_control_wheel_sequence(const float *targets, const int *durations_ms,
     }
     for (int i = 0; i < count; ++i) {
         float t = targets[i];
-        if (t < -12.0f) t = -12.0f;
-        if (t > 12.0f) t = 12.0f;
+        if (t < -30.0f) t = -30.0f;
+        if (t > 30.0f) t = 30.0f;
         int ms = durations_ms[i];
         if (ms < 0) ms = 0;
         if (ms > 3000) ms = 3000;

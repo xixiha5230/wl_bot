@@ -16,14 +16,26 @@
 
 static const char *TAG = "wifi";
 
-/* Home router (station mode). */
+/* Wi-Fi credentials. Supply them at build time through the environment so no
+ * secrets live in the repository:
+ *   WLROBOT_WIFI_SSID / WLROBOT_WIFI_PASSWORD   station (home router)
+ *   WLROBOT_AP_SSID   / WLROBOT_AP_PASSWORD     fallback access point
+ * The fallbacks below are only defaults for a fresh checkout. */
+#ifndef WIFI_STA_SSID
 #define WIFI_STA_SSID       "wlrobot-setup"
+#endif
+#ifndef WIFI_STA_PASSWORD
 #define WIFI_STA_PASSWORD   ""
+#endif
 
 /* Fallback access point, kept on 192.168.4.x so it cannot collide with the
  * common 192.168.1.x home networks. */
+#ifndef WIFI_AP_SSID
 #define WIFI_AP_SSID        "WLROBOT"
+#endif
+#ifndef WIFI_AP_PASSWORD
 #define WIFI_AP_PASSWORD    "12345678"
+#endif
 #define WIFI_AP_CHANNEL     1
 #define WIFI_AP_MAX_CLIENTS 2
 #define WIFI_AP_ADDRESS     ESP_IP4TOADDR(192, 168, 4, 1)

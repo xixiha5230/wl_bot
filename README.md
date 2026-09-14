@@ -17,10 +17,22 @@
 
 Wi-Fi 采用 **APSTA**：
 
-- **STA**：连接家庭路由器（凭据在 `main/wifi_net.c`），通过 DHCP 获取内网 IP；
-  主机名由 mDNS 广播，可用 `http://wlrobot.local/` 访问。
+- **STA**：连接家庭路由器（凭据由**构建时环境变量**提供，见下），通过 DHCP
+  获取内网 IP；主机名由 mDNS 广播，可用 `http://wlrobot.local/` 访问。
 - **AP 兜底**：始终开启热点 `WLROBOT` / `12345678`，地址 `192.168.4.1`
   （特意避开常见的 `192.168.1.x` 家庭网段）。
+
+Wi-Fi 凭据（不进仓库）：
+
+```bash
+WLROBOT_WIFI_SSID=你的SSID WLROBOT_WIFI_PASSWORD=你的密码 idf.py build
+# 或直接传给 OTA 脚本，一次构建+烧录：
+WLROBOT_WIFI_SSID=你的SSID WLROBOT_WIFI_PASSWORD=你的密码 tools/ota.sh
+```
+
+未设置时使用 `main/wifi_net.c` 里的占位默认值（`wlrobot-setup`，空密码，
+连不上真实网络，只会保留 AP 兜底）。AP 也支持 `WLROBOT_AP_SSID` /
+`WLROBOT_AP_PASSWORD` 覆盖。
 
 固件只暴露**数据面**：WebSocket 在 `:81/`，另有 `/api/status`、`/api/set`、`POST /api/ota`。
 控制界面在**主机侧**运行（`tools/web`）——机器人不托管网页，静态资源和渲染压力都在电脑上。
@@ -171,5 +183,5 @@ ID1 机械行程 2030..2575，ID2 1512..2077
 - 依赖 `espressif/esp_simplefoc`、`espressif/cjson`（见 `main/idf_component.yml` 与 `dependencies.lock`）。
 - 启动时 `i2c.common: GPIO 23/5 not usable` 与 `ledc: GPIO xx not usable` 为组件保留检查的
   良性告警，不影响功能。
-- 家庭 Wi-Fi 凭据目前写死在 `main/wifi_net.c`；如需推送到公开仓库，建议改到
-  `sdkconfig` 或未纳入版本管理的本地配置。
+- 家庭 Wi-Fi 凭据不进仓库：构建时用 `WLROBOT_WIFI_SSID` /
+  `WLROBOT_WIFI_PASSWORD`（和 `WLROBOT_AP_*`）环境变量注入，见上文。

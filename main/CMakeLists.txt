@@ -30,3 +30,24 @@ idf_component_register(
         nvs_flash
         espressif__esp_simplefoc
 )
+
+# Wi-Fi credentials are taken from the environment at configure time so they
+# never have to live in the repository, e.g.
+#   WLROBOT_WIFI_SSID=my-net WLROBOT_WIFI_PASSWORD=secret tools/ota.sh
+# Anything not set falls back to the default in wifi_net.c.
+if(DEFINED ENV{WLROBOT_WIFI_SSID})
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        "WIFI_STA_SSID=\"$ENV{WLROBOT_WIFI_SSID}\"")
+endif()
+if(DEFINED ENV{WLROBOT_WIFI_PASSWORD})
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        "WIFI_STA_PASSWORD=\"$ENV{WLROBOT_WIFI_PASSWORD}\"")
+endif()
+if(DEFINED ENV{WLROBOT_AP_SSID})
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        "WIFI_AP_SSID=\"$ENV{WLROBOT_AP_SSID}\"")
+endif()
+if(DEFINED ENV{WLROBOT_AP_PASSWORD})
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        "WIFI_AP_PASSWORD=\"$ENV{WLROBOT_AP_PASSWORD}\"")
+endif()
