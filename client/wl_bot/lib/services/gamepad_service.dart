@@ -11,14 +11,15 @@ typedef JoyVector = ({double x, double y});
 ///
 ///   left stick    -> drive joystick (dead zone + rescale, as the touch pad)
 ///   A / Cross     -> jump
-///   B / Circle    -> stop motion (zero joystick + dir stop)
+///   B / Circle    -> reset to default state (stop + height 100 + legs centered)
 ///   X / Square    -> toggle roll auto-level
 ///   Y / Triangle  -> self-right (get up)
 ///   Start / Menu  -> toggle GO
 ///   Back / Share  -> emergency stop (stop + GO off)
 ///   D-pad         -> momentary direction commands
 ///   RT / LT       -> height up / down while held
-///   RB / LB       -> roll right / left while held
+///   RB            -> right leg "iron mountain lean" bump
+///   LB            -> left leg "iron mountain lean" bump
 ///   right stick   -> height (Y) and roll (X) trim
 ///
 /// Silently no-ops on platforms without gamepad support.
@@ -35,6 +36,8 @@ class GamepadService {
     required this.onDirRelease,
     required this.onHeightDelta,
     required this.onRollDelta,
+    required this.onLegBump,
+    required this.onResetToDefault,
   });
 
   final void Function(JoyVector joy) onJoy;
@@ -48,6 +51,8 @@ class GamepadService {
   final void Function() onDirRelease;
   final void Function(int delta) onHeightDelta;
   final void Function(int delta) onRollDelta;
+  final void Function(int leg) onLegBump;
+  final void Function() onResetToDefault;
 
   static const double _deadzone = 0.15;
   static const double _trimThreshold = 0.4;
@@ -63,8 +68,6 @@ class GamepadService {
   double _rightY = 0;
   double _rt = 0;
   double _lt = 0;
-  bool _lb = false;
-  bool _rb = false;
 
   bool _listening = false;
   bool get listening => _listening;
@@ -124,7 +127,7 @@ class GamepadService {
       case GamepadButton.a:
         if (pressed) onJump();
       case GamepadButton.b:
-        if (pressed) onStopCmd();
+        if (pressed) onResetToDefault();
       case GamepadButton.x:
         if (pressed) onRollLevelToggle();
       case GamepadButton.y:
@@ -134,11 +137,9 @@ class GamepadService {
       case GamepadButton.back:
         if (pressed) onEmergencyStop();
       case GamepadButton.leftBumper:
-        _lb = pressed;
-        _ensureTrimTimer();
+        if (pressed) onLegBump(1);
       case GamepadButton.rightBumper:
-        _rb = pressed;
-        _ensureTrimTimer();
+        if (pressed) onLegBump(2);
       case GamepadButton.dpadUp:
         _dpad('forward', pressed);
       case GamepadButton.dpadDown:
@@ -166,11 +167,9 @@ class GamepadService {
       _rt > _triggerThreshold ||
       _lt > _triggerThreshold ||
       _rightX.abs() > _trimThreshold ||
-      _rightY.abs() > _trimThreshold ||
-      _lb ||
-      _rb;
+      _rightY.abs() > _trimThreshold;
 
-  /// Steps height/roll while a trim input is held, so triggers, bumpers and the
+  /// Steps height/roll while a trim input is held, so triggers and the
   /// right stick behave like the on-screen sliders.
   void _ensureTrimTimer() {
     if (_trimTimer != null) {
@@ -191,8 +190,6 @@ class GamepadService {
     if (_rightY > _trimThreshold) height += 1;
     if (_rightY < -_trimThreshold) height -= 1;
 
-    if (_rb) roll += 1;
-    if (_lb) roll -= 1;
     if (_rightX > _trimThreshold) roll += 1;
     if (_rightX < -_trimThreshold) roll -= 1;
 

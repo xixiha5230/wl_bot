@@ -55,6 +55,8 @@ class _DriveScreenState extends State<DriveScreen> {
       onRollDelta: (delta) => setState(() {
         _conn.desired.roll = (_conn.desired.roll + delta).clamp(-30, 30);
       }),
+      onLegBump: _legBump,
+      onResetToDefault: _resetToDefault,
     );
     _gamepad.start();
   }
@@ -156,6 +158,48 @@ class _DriveScreenState extends State<DriveScreen> {
       _snack(on ? 'roll auto-level ON' : 'roll auto-level OFF');
     } catch (e) {
       _snack('failed: $e');
+    }
+  }
+
+  bool _legBumpBusy = false;
+
+  /// Quick extend one leg then retract ("iron mountain lean" / 铁山靠).
+  /// [leg] = 1 for left, 2 for right.
+  Future<void> _legBump(int leg) async {
+    if (_legBumpBusy) return;
+    _legBumpBusy = true;
+    try {
+      final s = _conn.status;
+      if (s == null) return;
+      final cur = leg == 1 ? s.legTarget1 : s.legTarget2;
+      final lo = leg == 1 ? s.p1min : s.p2min;
+      final hi = leg == 1 ? s.p1max : s.p2max;
+      const bump = 30;
+      final extended = (cur + bump).clamp(lo, hi);
+      final param = leg == 1 ? 'lp1' : 'lp2';
+      await _conn.apiSet({param: extended.toString()});
+      await Future.delayed(const Duration(milliseconds: 60));
+      await _conn.apiSet({param: cur.toString()});
+    } catch (_) {
+      // ignore
+    } finally {
+      _legBumpBusy = false;
+    }
+  }
+
+  /// Stop everything and return to the default standing posture.
+  Future<void> _resetToDefault() async {
+    _setDir('stop');
+    _onJoyNorm(const (x: 0.0, y: 0.0));
+    _setGo(false);
+    setState(() {
+      _conn.desired.height = 100;
+      _conn.desired.roll = 0;
+    });
+    try {
+      await _conn.apiSet({'h': '100', 'lp1': '2265', 'lp2': '1813'});
+    } catch (_) {
+      // ignore
     }
   }
 
@@ -612,13 +656,14 @@ class _DriveScreenState extends State<DriveScreen> {
       ('Left stick', 'Drive (joystick)'),
       ('D-pad', 'Direction: forward / back / left / right'),
       ('A / Cross', 'Jump'),
-      ('B / Circle', 'Stop motion'),
+      ('B / Circle', 'Reset to default state'),
       ('X / Square', 'Toggle roll auto-level'),
       ('Y / Triangle', 'Self-right (get up)'),
       ('Start / Menu', 'Toggle GO'),
       ('Back / Share', 'Emergency stop (GO off)'),
       ('RT / LT', 'Height up / down'),
-      ('RB / LB', 'Roll right / left'),
+      ('RB', 'Right leg bump (铁山靠)'),
+      ('LB', 'Left leg bump (铁山靠)'),
       ('Right stick', 'Height (Y) and roll (X) trim'),
     ];
     showDialog<void>(

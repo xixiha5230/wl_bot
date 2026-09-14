@@ -11,9 +11,10 @@ from one Flutter codebase. Speaks the robot's LAN protocol directly
   sliders, GO/STOP, **GET UP** (self-right) and **LEVEL** (roll auto-level)
   toggles, live status + battery gauge + latency readout, plus roll/rb/amag
   telemetry and AIR / GETTING UP / FAULT pills.
-- Physical gamepads (Xbox/PS layout): left stick drives, A=jump, B=stop motion,
-  X=toggle roll auto-level, Y=self-right, Start=GO toggle, Back=emergency stop,
-  D-pad=direction, RT/LT=height, RB/LB=roll, right stick=height/roll trim.
+- Physical gamepads (Xbox/PS layout): left stick drives, A=jump, B=reset to
+  default state, X=toggle roll auto-level, Y=self-right, Start=GO toggle,
+  Back=emergency stop, D-pad=direction, RT/LT=height, RB=right leg bump
+  (铁山靠), LB=left leg bump (铁山靠), right stick=height/roll trim.
   **Input keeps working while the app is in the background.** Keyboard works
   everywhere (WASD/arrows, Space=jump, X/Esc=stop). The in-app gamepad button
   shows the full mapping.
