@@ -8,14 +8,18 @@ from one Flutter codebase. Speaks the robot's LAN protocol directly
 
 - Drive screen: virtual joystick (0.15 dead zone), direction pad with
   momentary Jump button (firmware fires on the jump→stop edge), height/roll
-  sliders, GO/STOP, live status + battery gauge + latency readout
+  sliders, GO/STOP, **GET UP** (self-right) and **LEVEL** (roll auto-level)
+  toggles, live status + battery gauge + latency readout, plus roll/rb/amag
+  telemetry and AIR / GETTING UP / FAULT pills.
 - Physical gamepads (Xbox/PS layout): left stick, A=jump, B=stop,
   Start=GO toggle, D-pad, RT/LT = height. Keyboard works everywhere
   (WASD/arrows, Space=jump, X/Esc=stop).
 - LAN discovery: /24 subnet scan with battery/state preview, tap to connect,
   plus remembered-host history.
 - Settings: PID / LPF / balance zero / yaw / gyro cal / full jump profile /
-  Wi-Fi OTA with reboot detection.
+  Wi-Fi OTA with reboot detection, plus roll auto-level & attitude thresholds,
+  global leg travel limits, manual leg hold, self-right params and the
+  research manual-wheel-drive / wheel-sequence commands.
 
 ## Prerequisites
 

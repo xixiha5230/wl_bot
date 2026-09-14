@@ -31,6 +31,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _jc = TextEditingController();
   final _jct = TextEditingController();
 
+  final _rb = TextEditingController();
+  final _faultDeg = TextEditingController();
+  final _airThresh = TextEditingController();
+  final _airScale = TextEditingController();
+
+  final _p1min = TextEditingController();
+  final _p1max = TextEditingController();
+  final _p2min = TextEditingController();
+  final _p2max = TextEditingController();
+  final _lp1 = TextEditingController();
+  final _lp2 = TextEditingController();
+  final _height = TextEditingController();
+
+  final _gTorque = TextEditingController();
+  final _gRelease = TextEditingController();
+  final _gSign = TextEditingController();
+
+  final _wdrive = TextEditingController();
+  final _wms = TextEditingController();
+  final _seq = TextEditingController();
+  bool _seqArm = false;
+
   final _otaUrl = TextEditingController();
 
   bool _otaWaiting = false;
@@ -47,6 +69,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     for (final c in [
       _pidName, _pidP, _pidI, _pidD, _pidLimit, _lpfName, _lpfTf, _zero,
       _jh, _jl, _js, _jacc, _jlt, _jc, _jct, _otaUrl,
+      _rb, _faultDeg, _airThresh, _airScale,
+      _p1min, _p1max, _p2min, _p2max, _lp1, _lp2, _height,
+      _gTorque, _gRelease, _gSign,
+      _wdrive, _wms, _seq,
     ]) {
       c.dispose();
     }
@@ -268,6 +294,201 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                     icon: const Icon(Icons.straighten),
                     label: const Text('Calibrate level (auto)'),
+                  ),
+                ],
+              ),
+              _card(
+                title: 'Roll auto-level & attitude',
+                subtitle: status == null
+                    ? null
+                    : 'roll ${status.roll.toStringAsFixed(2)} deg  '
+                        'mode ${status.rollMode}  '
+                        'rb ${status.rollBias.toStringAsFixed(2)}  '
+                        'fault ${status.faultDeg.toStringAsFixed(0)} deg  '
+                        'air ${status.airThresh.toStringAsFixed(2)}'
+                        'x${status.airScale.toStringAsFixed(2)}  '
+                        'amag ${status.amag.toStringAsFixed(2)} g',
+                children: [
+                  _row([
+                    OutlinedButton(
+                      onPressed: () =>
+                          _apply({'rollmode': '1'}, 'roll level on'),
+                      child: const Text('Level on'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () =>
+                          _apply({'rollmode': '0'}, 'roll level off'),
+                      child: const Text('Level off'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () =>
+                          _apply({'rollmode': '-1'}, 'roll inverted'),
+                      child: const Text('Invert'),
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
+                  _row([
+                    _field(_rb, 'roll bias deg (rb)'),
+                    OutlinedButton(
+                      onPressed: () => _apply({'rb': _rb.text}, 'rb applied'),
+                      child: const Text('Set rb'),
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
+                  _row([
+                    _field(_faultDeg, 'fault deg (35)'),
+                    OutlinedButton(
+                      onPressed: () => _apply(
+                          {'faultdeg': _faultDeg.text}, 'faultdeg applied'),
+                      child: const Text('Set'),
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
+                  _row([
+                    _field(_airThresh, 'airborne thresh g (0.6)'),
+                    _field(_airScale, 'air scale (0.25)'),
+                  ]),
+                  const SizedBox(height: 8),
+                  FilledButton(
+                    onPressed: () => _apply({
+                      if (_airThresh.text.isNotEmpty) 'airth': _airThresh.text,
+                      if (_airScale.text.isNotEmpty) 'airscale': _airScale.text,
+                    }, 'airborne applied'),
+                    child: const Text('Apply airborne'),
+                  ),
+                ],
+              ),
+              _card(
+                title: 'Leg travel limits',
+                subtitle: status == null
+                    ? null
+                    : 'p1[${status.p1min}..${status.p1max}] '
+                        'p2[${status.p2min}..${status.p2max}]  '
+                        'lt1=${status.legTarget1} lt2=${status.legTarget2}',
+                children: [
+                  _row([
+                    _field(_p1min, 'p1min'),
+                    _field(_p1max, 'p1max'),
+                    _field(_p2min, 'p2min'),
+                    _field(_p2max, 'p2max'),
+                  ]),
+                  const SizedBox(height: 8),
+                  FilledButton(
+                    onPressed: () => _apply({
+                      if (_p1min.text.isNotEmpty) 'p1min': _p1min.text,
+                      if (_p1max.text.isNotEmpty) 'p1max': _p1max.text,
+                      if (_p2min.text.isNotEmpty) 'p2min': _p2min.text,
+                      if (_p2max.text.isNotEmpty) 'p2max': _p2max.text,
+                    }, 'limits applied'),
+                    child: const Text('Apply limits'),
+                  ),
+                  const SizedBox(height: 8),
+                  _row([
+                    _field(_height, 'height 32..80 (h)'),
+                    OutlinedButton(
+                      onPressed: () =>
+                          _apply({'h': _height.text}, 'height applied'),
+                      child: const Text('Set h'),
+                    ),
+                  ]),
+                  const Divider(height: 24, color: Color(0xFF2B313A)),
+                  const Text('Manual leg hold (research)',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF6F7B8A))),
+                  const SizedBox(height: 8),
+                  _row([
+                    _field(_lp1, 'lp1'),
+                    _field(_lp2, 'lp2'),
+                  ]),
+                  const SizedBox(height: 8),
+                  _row([
+                    OutlinedButton(
+                      onPressed: () => _apply({
+                        if (_lp1.text.isNotEmpty) 'lp1': _lp1.text,
+                        if (_lp2.text.isNotEmpty) 'lp2': _lp2.text,
+                      }, 'legs held'),
+                      child: const Text('Hold legs'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () => _apply({'lp': '0'}, 'legs released'),
+                      child: const Text('Release'),
+                    ),
+                  ]),
+                ],
+              ),
+              _card(
+                title: 'Self-right',
+                subtitle: status == null
+                    ? null
+                    : 'state ${status.getupState} '
+                        '${status.selfRighting ? '(getting up)' : '(idle)'}',
+                children: [
+                  _row([
+                    FilledButton.icon(
+                      onPressed: () =>
+                          _apply({'getup': '1'}, 'self-right started'),
+                      icon: const Icon(Icons.accessibility_new),
+                      label: const Text('Get up'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () =>
+                          _apply({'getup': '0'}, 'self-right cancelled'),
+                      child: const Text('Cancel'),
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
+                  _row([
+                    _field(_gTorque, 'torque'),
+                    _field(_gRelease, 'release deg'),
+                    _field(_gSign, 'sign +/-1'),
+                  ]),
+                  const SizedBox(height: 8),
+                  FilledButton(
+                    onPressed: () => _apply({
+                      if (_gTorque.text.isNotEmpty) 'gtorque': _gTorque.text,
+                      if (_gRelease.text.isNotEmpty) 'grelease': _gRelease.text,
+                      if (_gSign.text.isNotEmpty) 'gsign': _gSign.text,
+                    }, 'self-right params applied'),
+                    child: const Text('Apply params'),
+                  ),
+                ],
+              ),
+              _card(
+                title: 'Manual wheel drive (research)',
+                subtitle: status == null
+                    ? null
+                    : 'manual ticks ${status.manualTicks}  '
+                        'motor mode ${status.motorMode}',
+                children: [
+                  _row([
+                    _field(_wdrive, 'torque -30..30'),
+                    _field(_wms, 'ms (300)'),
+                    OutlinedButton(
+                      onPressed: () => _apply({
+                        'wdrive': _wdrive.text.isEmpty ? '0' : _wdrive.text,
+                        if (_wms.text.isNotEmpty) 'wms': _wms.text,
+                      }, 'wheel drive sent'),
+                      child: const Text('Drive'),
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
+                  _field(_seq, 'sequence  v:ms, v:ms, ...'),
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: _seqArm,
+                        onChanged: (v) => setState(() => _seqArm = v ?? false),
+                      ),
+                      const Expanded(
+                          child: Text('arm (hand over on release angle)')),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton(
+                    onPressed: () => _apply({
+                      if (_seq.text.isNotEmpty) 'seq': _seq.text,
+                      if (_seqArm) 'arm': '1',
+                    }, 'sequence sent'),
+                    child: const Text('Run sequence'),
                   ),
                 ],
               ),

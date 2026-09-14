@@ -70,4 +70,37 @@ void main() {
     expect(status.go, isFalse);
     expect(status.height, 38);
   });
+
+  test('RobotStatus parses the extended telemetry fields', () {
+    final payload = <String, dynamic>{
+      'roll_mode': 0,
+      'rb': 0.52,
+      'faultdeg': 30.0,
+      'amag': 0.36,
+      'air': 1,
+      'airth': 0.6,
+      'airscale': 0.25,
+      'malign': 1,
+      'gstate': 1,
+      'freason': 1,
+      'p1min': 2077,
+      'p1max': 2453,
+      'p2min': 1619,
+      'p2max': 2007,
+      'lt1': 2110,
+      'lt2': 1985,
+      'jf': 0,
+    };
+    final s = RobotStatus.fromJson(payload);
+    expect(s.rollMode, 0);
+    expect(s.rollLevelOn, isFalse);
+    expect(s.air, isTrue);
+    expect(s.amag, 0.36);
+    expect(s.faultReasonName, 'attitude');
+    expect(s.selfRighting, isTrue);
+    expect(s.motorAligned, isTrue);
+    expect(s.p1min, 2077);
+    expect(s.p2max, 2007);
+    expect(s.legTarget1, 2110);
+  });
 }

@@ -127,6 +127,31 @@ class _DriveScreenState extends State<DriveScreen> {
     setState(() {});
   }
 
+  Future<void> _selfRight() async {
+    try {
+      final reply = await _conn.apiSet({'getup': '1'});
+      _snack(reply.trim().isEmpty ? 'self-right started' : reply.trim());
+    } catch (e) {
+      _snack('self-right failed: $e');
+    }
+  }
+
+  Future<void> _toggleRollLevel(bool on) async {
+    try {
+      await _conn.apiSet({'rollmode': on ? '1' : '0'});
+      _snack(on ? 'roll auto-level ON' : 'roll auto-level OFF');
+    } catch (e) {
+      _snack('failed: $e');
+    }
+  }
+
+  void _snack(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final status = _conn.status;
@@ -164,6 +189,7 @@ class _DriveScreenState extends State<DriveScreen> {
                                 _sliders(),
                                 _dirPad(),
                                 _goStop(),
+                                _quickActions(),
                               ],
                             ),
                           ),
@@ -182,6 +208,7 @@ class _DriveScreenState extends State<DriveScreen> {
                           _sliders(),
                           _dirPad(),
                           _goStop(),
+                          _quickActions(),
                         ],
                       ),
                     );
@@ -329,7 +356,20 @@ class _DriveScreenState extends State<DriveScreen> {
                           s.state == 'running' ? wlBotGreen : null),
                       if (s.fault) ...[
                         const SizedBox(width: 6),
-                        const _Pill('FAULT', Color(0xFFB3382F)),
+                        _Pill(
+                          s.faultReasonName.isEmpty
+                              ? 'FAULT'
+                              : 'FAULT ${s.faultReasonName.toUpperCase()}',
+                          const Color(0xFFB3382F),
+                        ),
+                      ],
+                      if (s.selfRighting) ...[
+                        const SizedBox(width: 6),
+                        const _Pill('GETTING UP', Color(0xFFD8A12E)),
+                      ],
+                      if (s.air) ...[
+                        const SizedBox(width: 6),
+                        const _Pill('AIR', Color(0xFF2F6FED)),
                       ],
                       const Spacer(),
                       BatteryGauge(voltage: s.battery),
@@ -339,7 +379,13 @@ class _DriveScreenState extends State<DriveScreen> {
                   _monoRow('angle', '${s.lqrAngle.toStringAsFixed(2)} deg'),
                   _monoRow('pp', s.anglePp.toStringAsFixed(2)),
                   _monoRow('lqr_u', s.lqrU.toStringAsFixed(3)),
-                  _monoRow('height', '${s.height}   zero ${s.zero.toStringAsFixed(2)}'),
+                  _monoRow('roll',
+                      '${s.roll.toStringAsFixed(2)} deg  ${s.rollLevelOn ? 'LVL' : 'MAN'}'),
+                  _monoRow('rb', s.rollBias.toStringAsFixed(2)),
+                  _monoRow('amag',
+                      '${s.amag.toStringAsFixed(2)} g  ${s.air ? 'AIR' : 'ground'}'),
+                  _monoRow('height',
+                      '${s.height}   zero ${s.zero.toStringAsFixed(2)}'),
                 ],
               ),
       ),
@@ -496,6 +542,48 @@ class _DriveScreenState extends State<DriveScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _quickActions() {
+    final s = _conn.status;
+    final levelOn = s?.rollLevelOn ?? false;
+    final gettingUp = s?.selfRighting ?? false;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: gettingUp
+                    ? const Color(0xFFD8A12E)
+                    : const Color(0xFF2F6FED),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              onPressed: _conn.isConnected ? _selfRight : null,
+              icon: const Icon(Icons.accessibility_new),
+              label: Text(gettingUp ? 'GETTING UP' : 'GET UP'),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                backgroundColor:
+                    levelOn ? const Color(0xFF1E4E3A) : const Color(0xFF26303A),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              onPressed:
+                  _conn.isConnected ? () => _toggleRollLevel(!levelOn) : null,
+              icon: Icon(levelOn ? Icons.straighten : Icons.straighten_outlined),
+              label: Text(levelOn ? 'LEVEL ON' : 'LEVEL OFF'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
