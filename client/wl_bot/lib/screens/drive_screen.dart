@@ -189,6 +189,7 @@ class _DriveScreenState extends State<DriveScreen> {
                           Expanded(
                             child: Center(
                               child: Joystick(
+                                value: _joyValue,
                                 size: 300,
                                 onChanged: _onJoy,
                               ),
@@ -217,7 +218,7 @@ class _DriveScreenState extends State<DriveScreen> {
                         children: [
                           _statusPanel(status),
                           const SizedBox(height: 12),
-                          Joystick(size: 240, onChanged: _onJoy),
+                          Joystick(value: _joyValue, size: 240, onChanged: _onJoy),
                           const SizedBox(height: 12),
                           _sliders(),
                           _dirPad(),
@@ -281,9 +282,16 @@ class _DriveScreenState extends State<DriveScreen> {
   }
 
   void _onJoy(Offset v) {
-    _conn.desired.joyX = (v.dx * 100).round();
-    _conn.desired.joyY = (v.dy * 100).round();
+    setState(() {
+      _conn.desired.joyX = (v.dx * 100).round();
+      _conn.desired.joyY = (v.dy * 100).round();
+    });
   }
+
+  Offset get _joyValue => Offset(
+    _conn.desired.joyX / 100.0,
+    _conn.desired.joyY / 100.0,
+  );
 
   /// Gamepad stick input already carries the dead zone; values are -1..1.
   void _onJoyNorm(({double x, double y}) v) {

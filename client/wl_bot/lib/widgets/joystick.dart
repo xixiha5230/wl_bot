@@ -1,59 +1,37 @@
 import 'package:flutter/material.dart';
 
 /// Virtual joystick matching the web UI's behaviour: 0.15 dead zone,
-/// radial re-scaling, spring back to center with zeroed output on release.
-class Joystick extends StatefulWidget {
+/// radial re-scaling. The knob position is driven by the parent via [value]
+/// so it always reflects the latest input source (touch, gamepad or keyboard).
+class Joystick extends StatelessWidget {
   const Joystick({
     super.key,
+    required this.value,
     required this.onChanged,
     this.size = 240,
   });
 
+  /// Current position, normalised -1..1 (y positive = up). The parent owns
+  /// this state; the widget never mutates it.
+  final Offset value;
+
+  /// Called on every drag update with the dead-zoned, rescaled value.
   final ValueChanged<Offset> onChanged;
+
   final double size;
 
   @override
-  State<Joystick> createState() => _JoystickState();
-}
-
-class _JoystickState extends State<Joystick> {
-  Offset _knob = Offset.zero; // normalized -1..1, y up
-
-  void _update(Offset normalized) {
-    setState(() => _knob = normalized);
-    widget.onChanged(normalized);
-  }
-
-  void _fromLocalPosition(Offset local) {
-    final center = Offset(widget.size / 2, widget.size / 2);
-    final radius = widget.size / 2;
-    var v = (local - center) / radius;
-    v = Offset(
-      (v.dx * 2).clamp(-1.0, 1.0),
-      (-v.dy * 2).clamp(-1.0, 1.0),
-    );
-    const dead = 0.15;
-    final m = v.distance;
-    if (m < dead) {
-      _update(Offset.zero);
-      return;
-    }
-    final scaled = (m - dead) / (1 - dead) / m;
-    _update(Offset(v.dx * scaled, v.dy * scaled));
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final active = _knob != Offset.zero;
+    final active = value != Offset.zero;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onPanDown: (DragDownDetails d) => _fromLocalPosition(d.localPosition),
-      onPanUpdate: (DragUpdateDetails d) => _fromLocalPosition(d.localPosition),
-      onPanEnd: (DragEndDetails d) => _update(Offset.zero),
-      onPanCancel: () => _update(Offset.zero),
+      onPanDown: (d) => _handleTouch(d.localPosition),
+      onPanUpdate: (d) => _handleTouch(d.localPosition),
+      onPanEnd: (_) => onChanged(Offset.zero),
+      onPanCancel: () => onChanged(Offset.zero),
       child: Container(
-        width: widget.size,
-        height: widget.size,
+        width: size,
+        height: size,
         decoration: BoxDecoration(
           color: const Color(0xFF12151A),
           borderRadius: BorderRadius.circular(20),
@@ -87,10 +65,10 @@ class _JoystickState extends State<Joystick> {
             ),
             Center(
               child: Transform.translate(
-                offset: Offset(_knob.dx, -_knob.dy) * (widget.size * 0.30),
+                offset: Offset(value.dx, -value.dy) * (size * 0.30),
                 child: Container(
-                  width: widget.size * 0.22,
-                  height: widget.size * 0.22,
+                  width: size * 0.22,
+                  height: size * 0.22,
                   decoration: BoxDecoration(
                     color: active
                         ? const Color(0xFF2F6FED)
@@ -110,5 +88,23 @@ class _JoystickState extends State<Joystick> {
         ),
       ),
     );
+  }
+
+  void _handleTouch(Offset local) {
+    final center = Offset(size / 2, size / 2);
+    final radius = size / 2;
+    var v = (local - center) / radius;
+    v = Offset(
+      (v.dx * 2).clamp(-1.0, 1.0),
+      (-v.dy * 2).clamp(-1.0, 1.0),
+    );
+    const dead = 0.15;
+    final m = v.distance;
+    if (m < dead) {
+      onChanged(Offset.zero);
+      return;
+    }
+    final scaled = (m - dead) / (1 - dead) / m;
+    onChanged(Offset(v.dx * scaled, v.dy * scaled));
   }
 }
