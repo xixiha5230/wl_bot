@@ -438,10 +438,13 @@ int robot_control_get_roll_mode(void)
     return roll_mode;
 }
 
+static void roll_bias_save(void);
+
 void robot_control_set_roll_bias(float bias)
 {
     if (bias > -10.0f && bias < 10.0f) {
         roll_bias = bias;
+        roll_bias_save();   /* keep a manual rb across reboots */
     }
 }
 
