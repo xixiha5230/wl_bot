@@ -53,13 +53,13 @@ static esp_err_t status_handler(httpd_req_t *request)
     int jc, jct;
     int16_t leg1, leg2;
     int jf;
-    int bamp, bms, bspd;
+    int bamp, bms, bspd, bacc;
     float ax, ay, az;
     int lim1min, lim1max, lim2min, lim2max;
     robot_control_get_leg_limits(&lim1min, &lim1max, &lim2min, &lim2max);
     robot_control_get_jump_profile(&jh, &jl, &js, &ja, &jt);
     robot_control_get_jump_crouch(&jc, &jct);
-    robot_control_get_bump_params(&bamp, &bms, &bspd);
+    robot_control_get_bump_params(&bamp, &bms, &bspd, &bacc);
     robot_control_get_leg_diag(&leg1, &leg2, &jf);
     robot_control_get_accel(&ax, &ay, &az);
     snprintf(response, sizeof(response),
@@ -76,7 +76,7 @@ static esp_err_t status_handler(httpd_req_t *request)
              "\"vl\":%.2f,\"vr\":%.2f,\"gz\":%.2f,\"uptime\":%d,"
              "\"jh\":%d,\"jl\":%d,\"js\":%d,\"jacc\":%d,\"jlt\":%d,"
              "\"jc\":%d,\"jct\":%d,\"lt1\":%d,\"lt2\":%d,\"jf\":%d,"
-             "\"manleg\":%d,\"bump\":%d,\"bamp\":%d,\"bms\":%d,\"bspd\":%d}",
+             "\"manleg\":%d,\"bump\":%d,\"bamp\":%d,\"bms\":%d,\"bspd\":%d,\"bacc\":%d}",
              robot_state_name(robot_state_get()), board_battery_voltage(),
              cmd.go ? 1 : 0, cmd.height, robot_control_lqr_angle(),
              robot_control_lqr_u(), robot_control_faulted() ? 1 : 0,
@@ -98,7 +98,7 @@ static esp_err_t status_handler(httpd_req_t *request)
              robot_control_gyro_z(), (int)(esp_timer_get_time() / 1000000),
              jh, jl, js, ja, jt, jc, jct, leg1, leg2, jf,
              robot_control_manual_legs_active(), robot_control_bump_state(),
-             bamp, bms, bspd);
+             bamp, bms, bspd, bacc);
     set_cors(request);
     httpd_resp_set_type(request, "application/json");
     return httpd_resp_send(request, response, HTTPD_RESP_USE_STRLEN);
@@ -230,8 +230,8 @@ static esp_err_t set_handler(httpd_req_t *request)
     /* One-shot leg bump: ?bump=1|2 fires it; bumpamp/bumpms/bumpspeed tune it. */
     {
         bool any = false;
-        int amp, ticks, speed;
-        robot_control_get_bump_params(&amp, &ticks, &speed);
+        int amp, ticks, speed, acc;
+        robot_control_get_bump_params(&amp, &ticks, &speed, &acc);
         if (httpd_query_key_value(query, "bumpamp", value, sizeof(value)) == ESP_OK) {
             amp = atoi(value);
             any = true;
@@ -244,11 +244,15 @@ static esp_err_t set_handler(httpd_req_t *request)
             speed = atoi(value);
             any = true;
         }
+        if (httpd_query_key_value(query, "bumpacc", value, sizeof(value)) == ESP_OK) {
+            acc = atoi(value);
+            any = true;
+        }
         if (any) {
-            robot_control_set_bump_params(amp, ticks, speed);
-            robot_control_get_bump_params(&amp, &ticks, &speed);
+            robot_control_set_bump_params(amp, ticks, speed, acc);
+            robot_control_get_bump_params(&amp, &ticks, &speed, &acc);
             snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
-                     "bump amp=%d ms=%d speed=%d ", amp, ticks, speed);
+                     "bump amp=%d ms=%d speed=%d acc=%d ", amp, ticks, speed, acc);
         }
     }
     if (httpd_query_key_value(query, "bump", value, sizeof(value)) == ESP_OK) {

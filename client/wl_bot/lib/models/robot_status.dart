@@ -59,9 +59,10 @@ class RobotStatus {
     this.jumpState = 0,
     this.manualLegs = false,
     this.bumpLeg = 0,
-    this.bumpAmp = 60,
-    this.bumpMs = 140,
+    this.bumpAmp = 120,
+    this.bumpMs = 110,
     this.bumpSpeed = 0,
+    this.bumpAcc = 0,
     this.latencyMs = 0,
   });
 
@@ -127,10 +128,12 @@ class RobotStatus {
   /// One-shot leg bump currently running: 0 idle, 1 left, 2 right.
   final int bumpLeg;
 
-  /// Leg bump tuning (extension counts, hold time ms, STS speed 0 = max).
+  /// Leg bump tuning (extension counts, phase time ms, STS speed 0 = max,
+  /// STS acceleration 0 = max).
   final int bumpAmp;
   final int bumpMs;
   final int bumpSpeed;
+  final int bumpAcc;
 
   final int latencyMs;
 
@@ -218,9 +221,10 @@ class RobotStatus {
       jumpState: _i(json, 'jf', 0),
       manualLegs: _b(json, 'manleg'),
       bumpLeg: _i(json, 'bump', 0),
-      bumpAmp: _i(json, 'bamp', 60),
-      bumpMs: _i(json, 'bms', 140),
+      bumpAmp: _i(json, 'bamp', 120),
+      bumpMs: _i(json, 'bms', 110),
       bumpSpeed: _i(json, 'bspd', 0),
+      bumpAcc: _i(json, 'bacc', 0),
       latencyMs: latencyMs,
     );
   }

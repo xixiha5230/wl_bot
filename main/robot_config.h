@@ -68,12 +68,14 @@
 
 /* One-shot leg bump ("iron mountain lean" / 抖肩): quickly extend one leg then
  * hand back to the normal height loop. amp = extension in servo counts,
- * ticks = hold time in control ticks (1 ms), speed = STS goal speed (0 = max).
- * Runtime-tunable as bumpamp / bumpms / bumpspeed. Because it is a timed pulse
+ * ticks = extend (and retract) time in ms, speed/acc = STS goal speed and
+ * acceleration (0 = max for both). Runtime-tunable as
+ * bumpamp / bumpms / bumpspeed / bumpacc. Because it is a timed two-phase pulse
  * it can never latch a hold that would freeze height/roll control. */
-#define LEG_BUMP_AMP             60
-#define LEG_BUMP_TICKS           140
+#define LEG_BUMP_AMP             120
+#define LEG_BUMP_TICKS           110
 #define LEG_BUMP_SPEED           0
+#define LEG_BUMP_ACC             0
 
 /*
  * Balance zero point vs leg height. Changing the leg extension moves the CoM,

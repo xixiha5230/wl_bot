@@ -84,11 +84,12 @@ int robot_control_manual_legs_active(void);
 
 /* One-shot leg bump ("iron mountain lean"): briefly extend one leg then hand
  * back to normal height/roll control automatically. [leg] 1 = left, 2 = right;
- * 0 cancels. Params: amp (servo counts), ticks (ms), speed (0 = max).
- * Safe by construction: it is a timed pulse, so it never latches a manual hold. */
+ * 0 cancels. Params: amp (servo counts), ticks (extend and retract time in ms),
+ * speed/acc (STS goal speed / acceleration, 0 = max for both). Safe by
+ * construction: it is a timed two-phase pulse, never a latched manual hold. */
 void robot_control_set_bump(int leg);
-void robot_control_set_bump_params(int amp, int ticks, int speed);
-void robot_control_get_bump_params(int *amp, int *ticks, int *speed);
+void robot_control_set_bump_params(int amp, int ticks, int speed, int acc);
+void robot_control_get_bump_params(int *amp, int *ticks, int *speed, int *acc);
 int robot_control_bump_state(void);
 
 /* One-shot "return to default standing pose": releases any manual leg hold,

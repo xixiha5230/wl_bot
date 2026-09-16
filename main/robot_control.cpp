@@ -214,8 +214,9 @@ static volatile int bump_request;     /* 0 idle, 1 left, 2 right */
 static int bump_flag;                 /* runtime state machine, 0 idle */
 static int bump_leg;                  /* 1 left, 2 right */
 static int bump_amp = LEG_BUMP_AMP;   /* extension in servo counts */
-static int bump_ticks = LEG_BUMP_TICKS;  /* hold time in ms */
+static int bump_ticks = LEG_BUMP_TICKS;  /* extend (and retract) time in ms */
 static int bump_speed = LEG_BUMP_SPEED;  /* STS goal speed, 0 = max */
+static int bump_acc = LEG_BUMP_ACC;      /* STS acceleration, 0 = max */
 /* One-shot request (from the HTTP task) to clear the roll/yaw integrators and
  * re-zero the yaw heading hold. Consumed by the control task. */
 static volatile bool attitude_reset_request;
@@ -726,18 +727,20 @@ void robot_control_set_bump(int leg)
     }
 }
 
-void robot_control_set_bump_params(int amp, int ticks, int speed)
+void robot_control_set_bump_params(int amp, int ticks, int speed, int acc)
 {
     if (amp > 0 && amp <= 400) bump_amp = amp;
     if (ticks > 0 && ticks <= 2000) bump_ticks = ticks;
     if (speed >= 0 && speed <= 3400) bump_speed = speed;
+    if (acc >= 0 && acc <= 255) bump_acc = acc;
 }
 
-void robot_control_get_bump_params(int *amp, int *ticks, int *speed)
+void robot_control_get_bump_params(int *amp, int *ticks, int *speed, int *acc)
 {
     if (amp) *amp = bump_amp;
     if (ticks) *ticks = bump_ticks;
     if (speed) *speed = bump_speed;
+    if (acc) *acc = bump_acc;
 }
 
 int robot_control_bump_state(void)
@@ -1044,10 +1047,10 @@ static void jump_loop(const robot_command_t *cmd)
     }
 }
 
-/* Timed one-leg extension. Reuses the height-based pose (roll correction is
- * skipped for the pulse) and offsets the selected leg outward. When the pulse
- * ends the normal loop resumes and the leg slews back. Returns true while the
- * pulse owns the leg output. */
+/* Timed two-phase one-leg extension: extend for bump_ticks, then snap back to
+ * the normal pose for another bump_ticks at the same high speed (instead of the
+ * slow normal slew), then hand control back. Roll correction is skipped for the
+ * pulse. Returns true while the pulse owns the leg output. */
 static bool bump_loop(const mpu6050_sample_t *imu)
 {
     if (bump_request != 0 && bump_flag == 0) {
@@ -1060,22 +1063,26 @@ static bool bump_loop(const mpu6050_sample_t *imu)
         return false;
     }
     last_roll_angle = imu->angle_x;
-    if (bump_flag > bump_ticks) {
+    if (bump_flag > bump_ticks * 2) {
         bump_flag = 0;
         return false;   /* pulse finished, resume normal control this tick */
     }
+    const bool extending = bump_flag <= bump_ticks;
     bump_flag++;
+
     const float height_offset = LEG_HEIGHT_STEP * (leg_height_cmd - LEG_HEIGHT_MIN);
     float position1 = LEG_POSITION_CENTER + LEG_MOUNT_OFFSET + height_offset;
     float position2 = LEG_POSITION_CENTER - LEG_MOUNT_OFFSET - height_offset;
-    if (bump_leg == 1) {
-        position1 += (float)bump_amp;   /* extend the left leg */
-    } else {
-        position2 -= (float)bump_amp;   /* extend the right leg (mirrored) */
+    if (extending) {
+        if (bump_leg == 1) {
+            position1 += (float)bump_amp;   /* extend the left leg */
+        } else {
+            position2 -= (float)bump_amp;   /* extend the right leg (mirrored) */
+        }
     }
     leg_output(clamp_position(position1, leg1_min, leg1_max),
                clamp_position(position2, leg2_min, leg2_max),
-               (uint16_t)bump_speed, LEG_MOVE_ACC);
+               (uint16_t)bump_speed, (uint8_t)bump_acc);
     return true;
 }
 

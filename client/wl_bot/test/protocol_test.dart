@@ -127,8 +127,9 @@ void main() {
     expect(s.manualLegs, isFalse);
     expect(s.bumpLeg, 0);
     expect(s.bumping, isFalse);
-    expect(s.bumpAmp, 60);
-    expect(s.bumpMs, 140);
+    expect(s.bumpAmp, 120);
+    expect(s.bumpMs, 110);
     expect(s.bumpSpeed, 0);
+    expect(s.bumpAcc, 0);
   });
 }

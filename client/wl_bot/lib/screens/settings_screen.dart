@@ -47,6 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _bumpAmp = TextEditingController();
   final _bumpMs = TextEditingController();
   final _bumpSpeed = TextEditingController();
+  final _bumpAcc = TextEditingController();
 
   final _gTorque = TextEditingController();
   final _gRelease = TextEditingController();
@@ -75,7 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _jh, _jl, _js, _jacc, _jlt, _jc, _jct, _otaUrl,
       _rb, _faultDeg, _airThresh, _airScale,
       _p1min, _p1max, _p2min, _p2max, _lp1, _lp2, _height,
-      _bumpAmp, _bumpMs, _bumpSpeed,
+      _bumpAmp, _bumpMs, _bumpSpeed, _bumpAcc,
       _gTorque, _gRelease, _gSign,
       _wdrive, _wms, _seq,
     ]) {
@@ -426,19 +427,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? null
                     : 'running=${status.bumpLeg}  '
                         'amp=${status.bumpAmp} ms=${status.bumpMs} '
-                        'speed=${status.bumpSpeed}  '
+                        'speed=${status.bumpSpeed} acc=${status.bumpAcc}  '
                         '${status.manualLegs ? 'LEGS MANUAL' : 'control live'}',
                 children: [
                   const Text(
-                    'Extends one leg for a short pulse, then hands back to the '
-                    'height loop automatically. speed 0 = max.',
+                    'Extends one leg for a short pulse, then snaps back at the '
+                    'same speed. speed/acc 0 = max.',
                     style: TextStyle(fontSize: 12, color: Color(0xFF6F7B8A)),
                   ),
                   const SizedBox(height: 8),
                   _row([
-                    _field(_bumpAmp, 'amp (${status?.bumpAmp ?? 60})'),
-                    _field(_bumpMs, 'ms (${status?.bumpMs ?? 140})'),
+                    _field(_bumpAmp, 'amp (${status?.bumpAmp ?? 120})'),
+                    _field(_bumpMs, 'ms (${status?.bumpMs ?? 110})'),
+                  ]),
+                  const SizedBox(height: 8),
+                  _row([
                     _field(_bumpSpeed, 'speed (${status?.bumpSpeed ?? 0})'),
+                    _field(_bumpAcc, 'acc (${status?.bumpAcc ?? 0})'),
                   ]),
                   const SizedBox(height: 8),
                   FilledButton(
@@ -446,6 +451,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       if (_bumpAmp.text.isNotEmpty) 'bumpamp': _bumpAmp.text,
                       if (_bumpMs.text.isNotEmpty) 'bumpms': _bumpMs.text,
                       if (_bumpSpeed.text.isNotEmpty) 'bumpspeed': _bumpSpeed.text,
+                      if (_bumpAcc.text.isNotEmpty) 'bumpacc': _bumpAcc.text,
                     }, 'bump params applied'),
                     child: const Text('Apply bump params'),
                   ),
