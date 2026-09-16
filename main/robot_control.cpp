@@ -104,13 +104,17 @@ static float angle_zeropoint = LEG_BALANCE_ZERO_DEFAULT;
 static float angle_zeropoint_base = LEG_BALANCE_ZERO_DEFAULT;
 static float distance_zeropoint = -256.0f;
 
-/* Yaw state */
+/* Yaw state: fused heading (gyro + wheel odometry), see yaw_loop(). */
 static float YAW_gyro;
-static float YAW_angle;
-static float YAW_angle_last;
-static float YAW_angle_total;
-static float YAW_angle_zero_point = -10.0f;
+static float YAW_angle;          /* fused heading, deg (telemetry) */
+static float YAW_angle_total;    /* accumulated heading setpoint, deg */
 static float YAW_output;
+static float yaw_wheel;          /* wheel-odometry heading, deg */
+static float yaw_fused;          /* complementary fused heading, deg */
+static float yaw_fused_last;
+static volatile float yaw_wheel_rate;   /* wheel-derived yaw rate, deg/s */
+static float yaw_wheel_scale = YAW_WHEEL_SCALE;
+static float yaw_wheel_corr = YAW_WHEEL_CORR;
 
 /* Control-task-local previous command snapshot (for edge detection). */
 static int prev_dir = ROBOT_STOP;
@@ -826,45 +830,40 @@ static void leg_task(void *arg)
 /* Control loops                                                             */
 /* ------------------------------------------------------------------------- */
 
-static void yaw_angle_addup(const mpu6050_sample_t *imu)
-{
-    YAW_angle = imu->angle_z;
-    YAW_gyro = imu->gyro_z_dps;
-
-    if (YAW_angle_zero_point == -10.0f) {
-        YAW_angle_zero_point = YAW_angle;
-    }
-
-    float yaw_angle_1;
-    float yaw_angle_2;
-    float yaw_addup_angle;
-    /* angle_z is accumulated in degrees, so the wrap-around correction is a
-     * full 360 degrees (the reference firmware used 2*PI here by mistake). */
-    if (YAW_angle > YAW_angle_last) {
-        yaw_angle_1 = YAW_angle - YAW_angle_last;
-        yaw_angle_2 = YAW_angle - YAW_angle_last - 360.0f;
-    } else {
-        yaw_angle_1 = YAW_angle - YAW_angle_last;
-        yaw_angle_2 = YAW_angle - YAW_angle_last + 360.0f;
-    }
-
-    if (fabsf(yaw_angle_1) > fabsf(yaw_angle_2)) {
-        yaw_addup_angle = yaw_angle_2;
-    } else {
-        yaw_addup_angle = yaw_angle_1;
-    }
-
-    YAW_angle_total = YAW_angle_total + yaw_addup_angle;
-    YAW_angle_last = YAW_angle;
-}
-
+/* Yaw: fuse the gyro (fast, no slip) with the wheel odometry (no zero-rate
+ * offset) so a gyro-Z bias can no longer be turned into a real spin, and give
+ * up the accumulated heading instead of fighting an uncommanded rotation. */
 static void yaw_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
 {
-    yaw_angle_addup(imu);
+    const float dt = 0.001f;   /* control loop runs at ~1 kHz */
+    const float gz = imu->gyro_z_dps;
+    YAW_gyro = gz;
 
+    /* Bias-free but slip-prone body yaw rate from the wheel differential. */
+    const float wz = yaw_wheel_scale * (last_right_velocity - last_left_velocity);
+    yaw_wheel_rate = wz;
+
+    yaw_wheel += wz * dt;
+    yaw_fused += gz * dt;
+    yaw_fused += yaw_wheel_corr * (yaw_wheel - yaw_fused) * dt;
+
+    YAW_angle = yaw_fused;
+    YAW_angle_total += yaw_fused - yaw_fused_last;
+    yaw_fused_last = yaw_fused;
+
+    /* The operator's yaw stick ramps the heading setpoint (same as before). */
     YAW_angle_total += (float)cmd->joy_x * 0.002f;
+
+    /* Give-up: re-reference instead of winding back a heading the operator did
+     * not ask for (mirrors the distance loop's distance_zeropoint reset). */
+    if (cmd->joy_x == 0 && fabsf(gz) < YAW_GIVEUP_RATE &&
+        fabsf(YAW_angle_total) > YAW_GIVEUP_DEG) {
+        YAW_angle_total = 0.0f;
+        pid_yaw_angle.reset();
+    }
+
     float yaw_angle_control = pid_yaw_angle(YAW_angle_total);
-    float yaw_gyro_control = pid_yaw_gyro(YAW_gyro);
+    float yaw_gyro_control = pid_yaw_gyro(gz);
     YAW_output = yaw_angle_control + yaw_gyro_control;
 }
 
@@ -888,7 +887,7 @@ static void lqr_balance_loop(const motor_feedback_t *left, const motor_feedback_
          * keeps integrating while disarmed (a fall, the robot being carried),
          * and unwinding it makes the robot spin on start-up. */
         YAW_angle_total = 0.0f;
-        YAW_angle_last = YAW_angle;
+        yaw_fused_last = yaw_fused;
         arm_request = false;
     }
 
@@ -1100,7 +1099,7 @@ static void leg_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
         /* Hold the heading the robot has right now instead of unwinding
          * whatever accumulated while it was disarmed or being carried. */
         YAW_angle_total = 0.0f;
-        YAW_angle_last = YAW_angle;
+        yaw_fused_last = yaw_fused;
     }
     jump_loop(cmd);
     if (jump_flag != 0) {
@@ -1477,6 +1476,37 @@ float robot_control_lqr_u(void)
 float robot_control_yaw_output(void)
 {
     return YAW_output;
+}
+
+float robot_control_yaw_fused(void)
+{
+    return YAW_angle;
+}
+
+float robot_control_yaw_wheel_rate(void)
+{
+    return yaw_wheel_rate;
+}
+
+float robot_control_yaw_wheel_heading(void)
+{
+    return yaw_wheel;
+}
+
+void robot_control_set_yaw_wheel(float scale, float corr)
+{
+    if (scale > -100.0f && scale < 100.0f) {
+        yaw_wheel_scale = scale;
+    }
+    if (corr >= 0.0f && corr < 50.0f) {
+        yaw_wheel_corr = corr;
+    }
+}
+
+void robot_control_get_yaw_wheel(float *scale, float *corr)
+{
+    if (scale) *scale = yaw_wheel_scale;
+    if (corr) *corr = yaw_wheel_corr;
 }
 
 float robot_control_yaw_total(void)

@@ -63,6 +63,10 @@ class RobotStatus {
     this.bumpMs = 110,
     this.bumpSpeed = 0,
     this.bumpAcc = 0,
+    this.yawFused = 0,
+    this.yawWheelRate = 0,
+    this.yawWheelScale = -10.4,
+    this.yawWheelCorr = 0.5,
     this.latencyMs = 0,
   });
 
@@ -134,6 +138,12 @@ class RobotStatus {
   final int bumpMs;
   final int bumpSpeed;
   final int bumpAcc;
+
+  /// Fused yaw heading (gyro + wheel odometry) and the wheel-derived yaw rate.
+  final double yawFused;
+  final double yawWheelRate;
+  final double yawWheelScale;
+  final double yawWheelCorr;
 
   final int latencyMs;
 
@@ -225,6 +235,10 @@ class RobotStatus {
       bumpMs: _i(json, 'bms', 110),
       bumpSpeed: _i(json, 'bspd', 0),
       bumpAcc: _i(json, 'bacc', 0),
+      yawFused: _d(json, 'yfh', 0),
+      yawWheelRate: _d(json, 'ywr', 0),
+      yawWheelScale: _d(json, 'yws', -10.4),
+      yawWheelCorr: _d(json, 'ywc', 0.5),
       latencyMs: latencyMs,
     );
   }

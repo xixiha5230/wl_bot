@@ -88,3 +88,21 @@
 /* The slow zero adaptation never moves more than this many degrees from the
  * configured base (safety against wind-up while the robot is held/pushed). */
 #define LEG_BALANCE_ZERO_ADAPT   1.00f
+
+/*
+ * Yaw heading. The gyro is fast but its zero-rate output drifts with
+ * temperature (MPU6050 spec +/-20 dps), which the yaw loop turns into a real
+ * spin; the wheel odometry has no offset but slips. Fuse them: propagate with
+ * the gyro and slowly pull the heading toward the wheel-odometry heading.
+ * YAW_WHEEL_SCALE converts the wheel velocity difference (rad/s, shaft) into a
+ * body yaw rate (deg/s), measured on this build by turning in place and
+ * comparing the gyro integral to the wheel differential integral.
+ * YAW_WHEEL_CORR is the complementary correction rate (1/s).
+ */
+#define YAW_WHEEL_SCALE    (-10.4f)
+#define YAW_WHEEL_CORR     0.5f
+/* Give up (re-reference) the accumulated heading instead of fighting a rotation
+ * the operator did not ask for: beyond this error with no yaw command, and when
+ * the body is being rotated faster than this (picked up / shoved). */
+#define YAW_GIVEUP_DEG     35.0f
+#define YAW_GIVEUP_RATE    90.0f

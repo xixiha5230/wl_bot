@@ -179,6 +179,14 @@ float robot_control_lqr_angle(void);
 float robot_control_lqr_u(void);
 float robot_control_yaw_output(void);
 float robot_control_yaw_total(void);
+/* Fused yaw heading (gyro + wheel odometry) and the wheel-derived yaw rate, for
+ * telemetry. scale = deg/s per rad/s of wheel velocity difference, corr = the
+ * complementary correction rate (1/s). */
+float robot_control_yaw_fused(void);
+float robot_control_yaw_wheel_rate(void);
+float robot_control_yaw_wheel_heading(void);
+void robot_control_set_yaw_wheel(float scale, float corr);
+void robot_control_get_yaw_wheel(float *scale, float *corr);
 float robot_control_left_velocity(void);
 float robot_control_right_velocity(void);
 float robot_control_gyro_z(void);
