@@ -90,17 +90,18 @@
 #define LEG_BALANCE_ZERO_ADAPT   1.00f
 
 /*
- * Yaw heading. The gyro is fast but its zero-rate output drifts with
- * temperature (MPU6050 spec +/-20 dps), which the yaw loop turns into a real
- * spin; the wheel odometry has no offset but slips. Fuse them: propagate with
- * the gyro and slowly pull the heading toward the wheel-odometry heading.
+ * Yaw heading. The gyro is fast and, once calibrated, drift-free enough; the
+ * wheel odometry is only trustworthy while the wheels roll without slipping
+ * (a forced/fast rotation makes them slip, and then correcting toward their
+ * heading drags the fused heading so the loop chases it into a slow spin).
  * YAW_WHEEL_SCALE converts the wheel velocity difference (rad/s, shaft) into a
- * body yaw rate (deg/s), measured on this build by turning in place and
- * comparing the gyro integral to the wheel differential integral.
- * YAW_WHEEL_CORR is the complementary correction rate (1/s).
+ * body yaw rate (deg/s), measured on this build (turn in place, compare the
+ * gyro and wheel differential integrals). YAW_WHEEL_CORR is the complementary
+ * correction rate (1/s); it defaults to 0 - the wheel fusion is a diagnostic
+ * aid, not the primary heading reference.
  */
 #define YAW_WHEEL_SCALE    (-10.4f)
-#define YAW_WHEEL_CORR     0.5f
+#define YAW_WHEEL_CORR     0.0f
 /* Give up (re-reference) the accumulated heading instead of fighting a rotation
  * the operator did not ask for: beyond this error with no yaw command, and when
  * the body is being rotated faster than this (picked up / shoved). */

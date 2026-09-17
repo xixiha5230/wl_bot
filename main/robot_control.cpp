@@ -855,9 +855,11 @@ static void yaw_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
     YAW_angle_total += (float)cmd->joy_x * 0.002f;
 
     /* Give-up: re-reference instead of winding back a heading the operator did
-     * not ask for (mirrors the distance loop's distance_zeropoint reset). */
-    if (cmd->joy_x == 0 && fabsf(gz) < YAW_GIVEUP_RATE &&
-        fabsf(YAW_angle_total) > YAW_GIVEUP_DEG) {
+     * not ask for (mirrors the distance loop's distance_zeropoint reset). Fire
+     * once the accumulated error is large, or as soon as the body is rotated
+     * hard (picked up / shoved), so the wheels do not fight a manual turn. */
+    if (cmd->joy_x == 0 &&
+        (fabsf(YAW_angle_total) > YAW_GIVEUP_DEG || fabsf(gz) > YAW_GIVEUP_RATE)) {
         YAW_angle_total = 0.0f;
         pid_yaw_angle.reset();
     }
