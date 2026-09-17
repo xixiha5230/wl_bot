@@ -90,6 +90,17 @@
 #define LEG_BALANCE_ZERO_ADAPT   1.00f
 
 /*
+ * Self-calibrating balance zero. The hard-coded height slope above is only a
+ * rough model (measured ~0.155 deg/unit on this build vs 0.075 configured), so
+ * while the robot is balancing straight and slow the effective zero walks
+ * toward the pitch it actually rests at. That makes it stand with minimal
+ * effort at any height without re-measuring the model. rate is in deg/s
+ * (0 = off); max bounds the learned offset from the modelled zero.
+ */
+#define LEG_BALANCE_ZERO_TRIM_RATE 0.3f
+#define LEG_BALANCE_ZERO_TRIM_MAX  12.0f
+
+/*
  * Yaw heading. The gyro is fast and, once calibrated, drift-free enough; the
  * wheel odometry is only trustworthy while the wheels roll without slipping
  * (a forced/fast rotation makes them slip, and then correcting toward their

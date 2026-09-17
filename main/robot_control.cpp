@@ -103,6 +103,10 @@ static float distance_control;
 static float angle_zeropoint = LEG_BALANCE_ZERO_DEFAULT;
 static float angle_zeropoint_base = LEG_BALANCE_ZERO_DEFAULT;
 static float distance_zeropoint = -256.0f;
+/* Adaptive offset on the modelled balance zero (self-calibration). */
+static float zero_auto;
+static float zero_trim_rate = LEG_BALANCE_ZERO_TRIM_RATE;
+static volatile bool zero_auto_reset;
 
 /* Yaw state: fused heading (gyro + wheel odometry), see yaw_loop(). */
 static float YAW_gyro;
@@ -354,6 +358,28 @@ void robot_control_set_angle_zeropoint(float degrees)
 float robot_control_get_angle_zeropoint(void)
 {
     return angle_zeropoint;
+}
+
+void robot_control_set_zero_trim(float rate)
+{
+    if (rate >= 0.0f && rate < 20.0f) {
+        zero_trim_rate = rate;
+    }
+}
+
+float robot_control_get_zero_trim(void)
+{
+    return zero_trim_rate;
+}
+
+float robot_control_get_zero_auto(void)
+{
+    return zero_auto;
+}
+
+void robot_control_reset_zero_auto(void)
+{
+    zero_auto_reset = true;
 }
 
 float robot_control_get_balance_zero(void)
@@ -893,9 +919,11 @@ static void lqr_balance_loop(const motor_feedback_t *left, const motor_feedback_
         arm_request = false;
     }
 
-    /* Balance zero compensates for the height-dependent CoM position. */
+    /* Balance zero compensates for the height-dependent CoM position, plus the
+     * self-calibrated offset learned while standing still. */
     float zero = angle_zeropoint -
-                 LEG_BALANCE_ZERO_SLOPE * (leg_height_cmd - (float)LEG_HEIGHT_DEFAULT);
+                 LEG_BALANCE_ZERO_SLOPE * (leg_height_cmd - (float)LEG_HEIGHT_DEFAULT) +
+                 zero_auto;
     last_balance_zero = zero;
     angle_control = pid_angle(LQR_angle - zero);
     gyro_control = pid_gyro(LQR_gyro);
@@ -967,6 +995,23 @@ static void lqr_balance_loop(const motor_feedback_t *left, const motor_feedback_
     if (airborne) {
         LQR_u *= air_scale;
         pid_lqr_u.clear_error();
+    }
+
+    /* Self-calibrate the balance zero: while balancing straight and slow, walk
+     * the target toward the pitch the robot actually rests at, so the model's
+     * height slope does not have to be exact and the loop stops fighting. */
+    if (zero_trim_rate > 0.0f && cmd->go && fault_reason == FAULT_NONE &&
+        fabsf((float)cmd->joy_x) < 5.0f && fabsf((float)cmd->joy_y) < 5.0f &&
+        fabsf(LQR_speed) < 3.0f && jump_flag == 0 && bump_flag == 0 && !airborne) {
+        const float err = LQR_angle - zero;
+        if (fabsf(err) < 8.0f) {   /* a bigger error is a push/fall, not a bias */
+            zero_auto += zero_trim_rate * err * 0.001f;   /* control loop ~1 kHz */
+            if (zero_auto > LEG_BALANCE_ZERO_TRIM_MAX) {
+                zero_auto = LEG_BALANCE_ZERO_TRIM_MAX;
+            } else if (zero_auto < -LEG_BALANCE_ZERO_TRIM_MAX) {
+                zero_auto = -LEG_BALANCE_ZERO_TRIM_MAX;
+            }
+        }
     }
 }
 
@@ -1102,6 +1147,11 @@ static void leg_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
          * whatever accumulated while it was disarmed or being carried. */
         YAW_angle_total = 0.0f;
         yaw_fused_last = yaw_fused;
+        zero_auto = 0.0f;
+    }
+    if (zero_auto_reset) {
+        zero_auto_reset = false;
+        zero_auto = 0.0f;
     }
     jump_loop(cmd);
     if (jump_flag != 0) {

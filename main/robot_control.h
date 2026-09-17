@@ -170,6 +170,13 @@ void robot_control_set_lpf(int which, float tf);
 /* Balance zero point in degrees (the original 'I'/'angle_zeropoint'). */
 void robot_control_set_angle_zeropoint(float degrees);
 float robot_control_get_angle_zeropoint(void);
+/* Self-calibrating balance zero: while balancing straight and slow, walk the
+ * effective zero toward the pitch the robot actually rests at. [rate] in deg/s,
+ * <=0 disables; the learned offset is bounded by LEG_BALANCE_ZERO_TRIM_MAX. */
+void robot_control_set_zero_trim(float rate);
+float robot_control_get_zero_trim(void);
+float robot_control_get_zero_auto(void);
+void robot_control_reset_zero_auto(void);
 /* Effective balance zero after the height compensation (for display). */
 float robot_control_get_balance_zero(void);
 /* Peak-to-peak of lqr_angle over the last ~1 s window (jitter metric). */

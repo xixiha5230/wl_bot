@@ -33,6 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   final _rb = TextEditingController();
   final _faultDeg = TextEditingController();
+  final _zrate = TextEditingController();
   final _airThresh = TextEditingController();
   final _airScale = TextEditingController();
 
@@ -74,7 +75,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     for (final c in [
       _pidName, _pidP, _pidI, _pidD, _pidLimit, _lpfName, _lpfTf, _zero,
       _jh, _jl, _js, _jacc, _jlt, _jc, _jct, _otaUrl,
-      _rb, _faultDeg, _airThresh, _airScale,
+      _rb, _faultDeg, _zrate, _airThresh, _airScale,
       _p1min, _p1max, _p2min, _p2max, _lp1, _lp2, _height,
       _bumpAmp, _bumpMs, _bumpSpeed, _bumpAcc,
       _gTorque, _gRelease, _gSign,
@@ -313,7 +314,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         'fault ${status.faultDeg.toStringAsFixed(0)} deg  '
                         'air ${status.airThresh.toStringAsFixed(2)}'
                         'x${status.airScale.toStringAsFixed(2)}  '
-                        'amag ${status.amag.toStringAsFixed(2)} g',
+                        'amag ${status.amag.toStringAsFixed(2)} g  '
+                        'zeroAuto ${status.zeroAuto.toStringAsFixed(2)} '
+                        '@${status.zeroTrimRate.toStringAsFixed(2)}/s',
                 children: [
                   _row([
                     OutlinedButton(
@@ -330,6 +333,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onPressed: () =>
                           _apply({'rollmode': '-1'}, 'roll inverted'),
                       child: const Text('Invert'),
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
+                  _row([
+                    _field(_zrate, 'zero self-cal deg/s (${status?.zeroTrimRate ?? 0.3})'),
+                    OutlinedButton(
+                      onPressed: () => _apply(
+                          {'zadapt': _zrate.text.isEmpty ? '0' : _zrate.text},
+                          'zero trim set'),
+                      child: const Text('Set'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () =>
+                          _apply({'zauto': '0'}, 'zero offset reset'),
+                      child: const Text('Reset'),
                     ),
                   ]),
                   const SizedBox(height: 8),

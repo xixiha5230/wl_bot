@@ -67,6 +67,8 @@ class RobotStatus {
     this.yawWheelRate = 0,
     this.yawWheelScale = -10.4,
     this.yawWheelCorr = 0.5,
+    this.zeroAuto = 0,
+    this.zeroTrimRate = 0.3,
     this.latencyMs = 0,
   });
 
@@ -144,6 +146,10 @@ class RobotStatus {
   final double yawWheelRate;
   final double yawWheelScale;
   final double yawWheelCorr;
+
+  /// Self-calibrating balance zero: the learned offset (deg) and its rate.
+  final double zeroAuto;
+  final double zeroTrimRate;
 
   final int latencyMs;
 
@@ -239,6 +245,8 @@ class RobotStatus {
       yawWheelRate: _d(json, 'ywr', 0),
       yawWheelScale: _d(json, 'yws', -10.4),
       yawWheelCorr: _d(json, 'ywc', 0.5),
+      zeroAuto: _d(json, 'zauto', 0),
+      zeroTrimRate: _d(json, 'zrate', 0.3),
       latencyMs: latencyMs,
     );
   }

@@ -56,12 +56,15 @@ static esp_err_t status_handler(httpd_req_t *request)
     int bamp, bms, bspd, bacc;
     float ax, ay, az;
     float yws, ywc;
+    float zauto, zrate;
     int lim1min, lim1max, lim2min, lim2max;
     robot_control_get_leg_limits(&lim1min, &lim1max, &lim2min, &lim2max);
     robot_control_get_jump_profile(&jh, &jl, &js, &ja, &jt);
     robot_control_get_jump_crouch(&jc, &jct);
     robot_control_get_bump_params(&bamp, &bms, &bspd, &bacc);
     robot_control_get_yaw_wheel(&yws, &ywc);
+    zauto = robot_control_get_zero_auto();
+    zrate = robot_control_get_zero_trim();
     robot_control_get_leg_diag(&leg1, &leg2, &jf);
     robot_control_get_accel(&ax, &ay, &az);
     snprintf(response, sizeof(response),
@@ -79,7 +82,8 @@ static esp_err_t status_handler(httpd_req_t *request)
              "\"jh\":%d,\"jl\":%d,\"js\":%d,\"jacc\":%d,\"jlt\":%d,"
              "\"jc\":%d,\"jct\":%d,\"lt1\":%d,\"lt2\":%d,\"jf\":%d,"
              "\"manleg\":%d,\"bump\":%d,\"bamp\":%d,\"bms\":%d,\"bspd\":%d,\"bacc\":%d,"
-             "\"yfh\":%.2f,\"ywr\":%.2f,\"yws\":%.2f,\"ywc\":%.2f,\"gzoff\":%.2f}",
+             "\"yfh\":%.2f,\"ywr\":%.2f,\"yws\":%.2f,\"ywc\":%.2f,\"gzoff\":%.2f,"
+             "\"zauto\":%.2f,\"zrate\":%.2f}",
              robot_state_name(robot_state_get()), board_battery_voltage(),
              cmd.go ? 1 : 0, cmd.height, robot_control_lqr_angle(),
              robot_control_lqr_u(), robot_control_faulted() ? 1 : 0,
@@ -103,7 +107,7 @@ static esp_err_t status_handler(httpd_req_t *request)
              robot_control_manual_legs_active(), robot_control_bump_state(),
              bamp, bms, bspd, bacc,
              robot_control_yaw_fused(), robot_control_yaw_wheel_rate(), yws, ywc,
-             sensors_gyro_offset_z());
+             sensors_gyro_offset_z(), zauto, zrate);
     set_cors(request);
     httpd_resp_set_type(request, "application/json");
     return httpd_resp_send(request, response, HTTPD_RESP_USE_STRLEN);
@@ -130,6 +134,19 @@ static esp_err_t set_handler(httpd_req_t *request)
         float v = strtof(value, NULL);
         robot_control_set_angle_zeropoint(v);
         snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied), "zero=%.2f ", v);
+    }
+    /* Balance-zero self-calibration: ?zadapt=<deg/s> (0 = off), ?zauto=0 reset. */
+    if (httpd_query_key_value(query, "zadapt", value, sizeof(value)) == ESP_OK) {
+        float v = strtof(value, NULL);
+        robot_control_set_zero_trim(v);
+        snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                 "zadapt=%.3f ", robot_control_get_zero_trim());
+    }
+    if (httpd_query_key_value(query, "zauto", value, sizeof(value)) == ESP_OK &&
+        atoi(value) == 0) {
+        robot_control_reset_zero_auto();
+        snprintf(applied + strlen(applied), sizeof(applied) - strlen(applied),
+                 "zauto=0 ");
     }
     if (httpd_query_key_value(query, "yaw", value, sizeof(value)) == ESP_OK) {
         int v = atoi(value);
