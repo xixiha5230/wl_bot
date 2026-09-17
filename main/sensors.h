@@ -41,6 +41,13 @@ esp_err_t sensors_read_imu(mpu6050_sample_t *imu);
  * while this runs (it samples for ~1 s). Used by the 'gcal' command. */
 esp_err_t sensors_calibrate_gyro(void);
 
+/* Nudge the gyro Z zero-rate offset by `residual` dps, for the slow runtime
+ * auto-trim that cancels the MPU6050 temperature drift. Clamped internally. */
+void sensors_trim_gyro_z(float residual);
+
+/* Current gyro Z zero-rate offset (dps), for telemetry. */
+float sensors_gyro_offset_z(void);
+
 /* Read one AS5600 raw angle (index 0 = left bus, 1 = right bus). Used by the
  * FOC loop, hence the short I2C timeout. */
 esp_err_t sensors_read_encoder(uint8_t index, uint16_t *raw_angle);

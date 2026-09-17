@@ -1261,6 +1261,28 @@ static void fault_recover(const robot_command_t *cmd, const mpu6050_sample_t *im
 /* Control task                                                              */
 /* ------------------------------------------------------------------------- */
 
+/* Gyro Z auto-trim: the MPU6050 zero-rate offset drifts with temperature, which
+ * the yaw loop turns into a slow spin. While the robot is disarmed and not
+ * rotating the gyro Z reading *is* that offset, so walk the offset to null it.
+ * Runs on every idle/rest period, so a bad boot calibration self-heals. */
+static void gyro_trim_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd)
+{
+    static int still_ticks;
+    /* The window must exceed a plausible bad boot offset (MPU6050 ZRO is
+     * +/-20 dps but a moving boot calibration can leave more), otherwise the
+     * trim can never reach it. Real rotations are far larger and excluded. */
+    if (!cmd->go && fabsf(imu->gyro_z_dps) < 60.0f) {
+        if (still_ticks < 3000) {
+            still_ticks++;
+        }
+    } else {
+        still_ticks = 0;
+    }
+    if (still_ticks >= 500) {   /* ~0.5 s at rest before trusting the reading */
+        sensors_trim_gyro_z(imu->gyro_z_dps * 0.001f);   /* ~1 s time constant */
+    }
+}
+
 static void control_task(void *arg)
 {
     (void)arg;
@@ -1291,6 +1313,9 @@ static void control_task(void *arg)
                 arm_request = true;
             }
             prev_go = cmd.go;
+
+            /* Cancel the gyro Z zero-rate drift while disarmed and at rest. */
+            gyro_trim_loop(&imu, &cmd);
 
             /* Research mode: direct wheel torque (sequence or single pulse),
              * bypasses balancing and fault handling. */

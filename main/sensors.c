@@ -150,6 +150,24 @@ esp_err_t sensors_calibrate_gyro(void)
     return ESP_OK;
 }
 
+void sensors_trim_gyro_z(float residual)
+{
+    if (!(residual > -10.0f && residual < 10.0f)) {
+        return;   /* a wild value means the robot is moving, not a bias */
+    }
+    gyro_offset_z += residual;
+    if (gyro_offset_z > 50.0f) {
+        gyro_offset_z = 50.0f;
+    } else if (gyro_offset_z < -50.0f) {
+        gyro_offset_z = -50.0f;
+    }
+}
+
+float sensors_gyro_offset_z(void)
+{
+    return gyro_offset_z;
+}
+
 static esp_err_t configure_mpu6050(void)
 {
     ESP_RETURN_ON_ERROR(write_register(imu, MPU6050_PWR_MGMT_1, 0x01),

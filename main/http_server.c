@@ -79,7 +79,7 @@ static esp_err_t status_handler(httpd_req_t *request)
              "\"jh\":%d,\"jl\":%d,\"js\":%d,\"jacc\":%d,\"jlt\":%d,"
              "\"jc\":%d,\"jct\":%d,\"lt1\":%d,\"lt2\":%d,\"jf\":%d,"
              "\"manleg\":%d,\"bump\":%d,\"bamp\":%d,\"bms\":%d,\"bspd\":%d,\"bacc\":%d,"
-             "\"yfh\":%.2f,\"ywr\":%.2f,\"yws\":%.2f,\"ywc\":%.2f}",
+             "\"yfh\":%.2f,\"ywr\":%.2f,\"yws\":%.2f,\"ywc\":%.2f,\"gzoff\":%.2f}",
              robot_state_name(robot_state_get()), board_battery_voltage(),
              cmd.go ? 1 : 0, cmd.height, robot_control_lqr_angle(),
              robot_control_lqr_u(), robot_control_faulted() ? 1 : 0,
@@ -102,7 +102,8 @@ static esp_err_t status_handler(httpd_req_t *request)
              jh, jl, js, ja, jt, jc, jct, leg1, leg2, jf,
              robot_control_manual_legs_active(), robot_control_bump_state(),
              bamp, bms, bspd, bacc,
-             robot_control_yaw_fused(), robot_control_yaw_wheel_rate(), yws, ywc);
+             robot_control_yaw_fused(), robot_control_yaw_wheel_rate(), yws, ywc,
+             sensors_gyro_offset_z());
     set_cors(request);
     httpd_resp_set_type(request, "application/json");
     return httpd_resp_send(request, response, HTTPD_RESP_USE_STRLEN);
