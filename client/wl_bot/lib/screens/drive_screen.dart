@@ -46,7 +46,7 @@ class _DriveScreenState extends State<DriveScreen> {
       onDirRelease: () => _setDir('stop'),
       onHeightDelta: (delta) => setState(() {
         _conn.desired.height =
-            (_conn.desired.height + delta).clamp(32, 80);
+            (_conn.desired.height + delta).clamp(32, 72);
       }),
       onRollDelta: (delta) => setState(() {
         _conn.desired.roll = (_conn.desired.roll + delta).clamp(-30, 30);
@@ -483,7 +483,7 @@ class _DriveScreenState extends State<DriveScreen> {
           label: 'Height',
           value: _conn.desired.height.toDouble(),
           min: 32,
-          max: 80,
+          max: 72,
           display: '${_conn.desired.height}',
           onChanged: (v) => setState(() => _conn.desired.height = v.round()),
         ),

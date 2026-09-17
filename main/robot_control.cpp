@@ -407,6 +407,11 @@ void robot_control_set_height(int height)
     /* Any height command means "drive the legs normally": drop a stale manual
      * hold so the operator can always recover control over Wi-Fi. */
     manual_leg_enable = false;
+    if (height < LEG_HEIGHT_MIN) {
+        height = LEG_HEIGHT_MIN;
+    } else if (height > LEG_HEIGHT_MAX) {
+        height = LEG_HEIGHT_MAX;
+    }
     portENTER_CRITICAL(&cmd_mux);
     command.height = height;
     portEXIT_CRITICAL(&cmd_mux);

@@ -408,7 +408,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 8),
                   _row([
-                    _field(_height, 'height 32..80 (h)'),
+                    _field(_height, 'height 32..72 (h)'),
                     OutlinedButton(
                       onPressed: () =>
                           _apply({'h': _height.text}, 'height applied'),

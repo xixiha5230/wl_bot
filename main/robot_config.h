@@ -38,7 +38,11 @@
 #define LEG_MOUNT_OFFSET         12.0f
 #define LEG_HEIGHT_STEP          8.4f
 #define LEG_HEIGHT_MIN           32
-#define LEG_HEIGHT_MAX           80
+/* Capped at 72, not the mechanical 80: near the top of the leg travel leg1
+ * pins on LEG_POS1_MAX, the roll levelling loses all authority, its integrator
+ * winds up and the chassis shakes itself into a fault. 72 leaves ~57 counts of
+ * roll headroom while keeping most of the working range. */
+#define LEG_HEIGHT_MAX           72
 #define LEG_HEIGHT_DEFAULT       38
 
 /* Global leg travel limits (servo command counts). Bench readback at the
@@ -64,7 +68,7 @@
 
 /* Max leg-height change per control loop (~500 Hz). Softens a slider jump so the
  * leg motion does not kick the chassis hard enough to lose balance. */
-#define LEG_HEIGHT_SLEW          0.15f
+#define LEG_HEIGHT_SLEW          0.05f
 
 /* One-shot leg bump ("iron mountain lean" / 抖肩): quickly extend one leg then
  * hand back to the normal height loop. amp = extension in servo counts,
