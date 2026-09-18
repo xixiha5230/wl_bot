@@ -964,8 +964,15 @@ static void control_task(void *arg)
             }
             prev_go = cmd.go;
 
-            /* Cancel the gyro Z zero-rate drift while disarmed and at rest. */
-            gyro_trim_loop(&imu, &cmd);
+            /* Cancel the gyro Z zero-rate drift while disarmed and at rest.
+             * The research paths (manual drive, wheel sequence, the get-up rock)
+             * move the robot with go still off, so the "at rest" assumption does
+             * not hold there and the trim would learn the motion as bias. */
+            const bool trim_unsafe = wheel_seq_len > 0 || manual_s_left > 0.0f ||
+                                     getup_state == 1;
+            if (!trim_unsafe) {
+                gyro_trim_loop(&imu, &cmd);
+            }
 
             /* Research mode: direct wheel torque (sequence or single pulse),
              * bypasses balancing and fault handling. */
