@@ -205,7 +205,11 @@ class RobotConnection extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      _onLinkLost('status poll failed: $e');
+      // A transient status-poll failure must not tear down the control link:
+      // the WS has its own onDone/onError and keeps commands flowing. Surface
+      // the error for the UI and let the next poll retry.
+      _error = 'status poll failed: $e';
+      notifyListeners();
     }
   }
 

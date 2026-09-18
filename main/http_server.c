@@ -106,6 +106,9 @@ esp_err_t http_server_start(httpd_handle_t *out_server)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.core_id = 0;   /* keep the real-time control loop (core 1) undisturbed */
     config.max_open_sockets = 7;
+    /* Do NOT enable lru_purge: the long-lived /ws control socket looks idle
+     * between commands and would be the first thing purged, dropping the
+     * control link while status polling keeps opening connections. */
     httpd_uri_t root = {.uri = "/", .method = HTTP_GET, .handler = root_handler};
     httpd_uri_t status = {.uri = "/api/status", .method = HTTP_GET, .handler = http_status_handler};
     httpd_uri_t set = {.uri = "/api/set", .method = HTTP_GET, .handler = http_set_handler};
