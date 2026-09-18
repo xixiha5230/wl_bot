@@ -149,7 +149,7 @@ function api(path, opts) { return fetch(`http://${host()}${path}`, opts); }
 $("connect").onclick = () => {
   if (ws) { ws.close(); ws = null; }
   localStorage.setItem("wlrobot_host", host());
-  ws = new WebSocket(`ws://${host()}:81/`);
+  ws = new WebSocket(`ws://${host()}/ws`);
   ws.onopen = () => { $("dot").classList.add("on"); $("conn").textContent = "connected"; send(); };
   ws.onclose = () => { $("dot").classList.remove("on"); $("conn").textContent = "disconnected"; };
   ws.onerror = () => { $("conn").textContent = "error"; };

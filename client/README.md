@@ -2,7 +2,7 @@
 
 Cross-platform remote for the Micro Wheeled-leg Robot: **Android / macOS / Windows**
 from one Flutter codebase. Speaks the robot's LAN protocol directly
-(WebSocket `:81` + JSON API `:80`, both cleartext).
+(WebSocket `/ws` + JSON API, both on port 80, cleartext).
 
 ## Features
 

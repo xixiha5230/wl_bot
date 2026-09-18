@@ -66,9 +66,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   static const _pidNames = [
     'angle', 'gyro', 'distance', 'speed', 'yaw_angle', 'yaw_gyro',
-    'lqr_u', 'zeropoint', 'roll_angle',
+    'lqr_u', 'roll_angle',
   ];
-  static const _lpfNames = ['joyy', 'zeropoint', 'roll'];
+  static const _lpfNames = ['joyy', 'roll'];
 
   @override
   void dispose() {

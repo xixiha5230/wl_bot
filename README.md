@@ -42,7 +42,7 @@ WLROBOT_WIFI_SSID=你的SSID WLROBOT_WIFI_PASSWORD=你的密码 tools/ota.sh
 连不上真实网络，只会保留 AP 兜底）。AP 也支持 `WLROBOT_AP_SSID` /
 `WLROBOT_AP_PASSWORD` 覆盖。
 
-固件只暴露**数据面**：WebSocket 在 `:81/`，另有 `/api/status`、`/api/set`、`POST /api/ota`。
+固件只暴露**数据面**：WebSocket 在 `/ws`，另有 `/api/status`、`/api/set`、`POST /api/ota`。
 控制界面在**主机侧**运行（`tools/web`）——机器人不托管网页，静态资源和渲染压力都在电脑上。
 
 ## 架构
@@ -69,7 +69,7 @@ WLROBOT_WIFI_SSID=你的SSID WLROBOT_WIFI_PASSWORD=你的密码 tools/ota.sh
 - **控制环**：LQR 平衡、YAW 转向、腿部高度 + roll 补偿、跳跃、失控保护。
 - **运行时调参**：`pid` / `lpf` / `zero` / `yaw`，边跑边调，立即生效。
 - **电源**：电压采样（EWMA 滤波）+ LED 迟滞指示 + 低压保护（去抖）。
-- **网络**：WebSocket 遥控（端口 81）+ JSON API（`/api/status`、`/api/set`、`POST /api/ota`）；
+- **网络**：WebSocket 遥控（`/ws`）+ JSON API（`/api/status`、`/api/set`、`POST /api/ota`）；
   控制 UI 在主机侧（`tools/web`），机器人只做数据面。
 - **OTA**：双 OTA 分区，`POST /api/ota`（body 为固件 URL）或串口 `ota <url>`，成功自动重启。
 - **串口控制台**：UART0，提示符 `wlrobot>`。
@@ -105,7 +105,7 @@ tools/ota.sh                       # 构建 → 本机起临时 HTTP → 触发�
 ROBOT=192.168.1.195 tools/ota.sh   # 指定机器人地址
 ```
 
-界面连接 `ws://<host>:81/` 做实时遥控，用 `/api/set` 调参、`POST /api/ota` 升级，均带 CORS。
+界面连接 `ws://<host>/ws` 做实时遥控，用 `/api/set` 调参、`POST /api/ota` 升级，均带 CORS。
 
 ## 串口命令
 

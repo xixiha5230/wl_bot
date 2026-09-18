@@ -10,7 +10,7 @@ import '../models/robot_status.dart';
 
 enum LinkState { disconnected, connecting, connected, error }
 
-/// Owns the WS control link (port 81) and the /api/status poll (port 80).
+/// Owns the WS control link (/ws) and the /api/status poll, both on port 80.
 ///
 /// - Outgoing DriveCommands are serialized at [sendInterval] and only when
 ///   they change (plus an idle heartbeat so the robot never keeps a stale
@@ -92,7 +92,7 @@ class RobotConnection extends ChangeNotifier {
 
   Future<void> _openLink() async {
     _setState(LinkState.connecting);
-    final wsUri = Uri.parse('ws://$_host:81/');
+    final wsUri = Uri.parse('ws://$_host/ws');
     final client = _http ??= http.Client();
     try {
       final probe = await client
