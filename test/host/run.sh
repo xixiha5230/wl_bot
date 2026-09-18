@@ -4,7 +4,10 @@ set -eu
 
 root="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 cc="${CC:-cc}"
-out="${TMPDIR:-/tmp}/robot_math_test"
+outdir="${TMPDIR:-/tmp}"
 
-"$cc" -std=c11 -Wall -Wextra -O2 -I"$root/main" -o "$out" "$root/test/host/test_robot_math.c" -lm
-"$out"
+for test in test_robot_math test_robot_logic; do
+    out="$outdir/$test.bin"
+    "$cc" -std=c11 -Wall -Wextra -O2 -I"$root/main" -o "$out" "$root/test/host/$test.c" -lm
+    "$out"
+done

@@ -10,6 +10,16 @@
 /* Telemetry access                                                          */
 /* ------------------------------------------------------------------------- */
 
+void robot_control_get_telemetry(robot_telemetry_t *out)
+{
+    if (out == NULL) {
+        return;
+    }
+    telemetry_lock();
+    *out = telemetry;
+    telemetry_unlock();
+}
+
 float robot_control_lqr_angle(void)
 {
     telemetry_lock();

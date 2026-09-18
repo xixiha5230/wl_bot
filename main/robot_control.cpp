@@ -111,13 +111,8 @@ static float zero_auto;
 static bool zero_auto_reset;
 
 /* Yaw state: fused heading (gyro + wheel odometry), see yaw_loop(). */
-static float YAW_angle;          /* fused heading, deg (telemetry) */
-static float YAW_angle_total;    /* accumulated heading setpoint, deg */
+static robot_yaw_t yaw;
 static float YAW_output;
-static float yaw_wheel;          /* wheel-odometry heading, deg */
-static float yaw_fused;          /* complementary fused heading, deg */
-static float yaw_fused_last;
-static float yaw_wheel_rate;     /* wheel-derived yaw rate, deg/s */
 
 /* Previous command snapshot (for edge detection). */
 static int prev_dir = ROBOT_STOP;
@@ -149,9 +144,8 @@ static bool go_auto_latch;
  * robot lunge forward on landing. Below `air_thresh_g` of specific force the
  * robot is treated as airborne and the balance output is scaled by
  * `air_scale` until it lands. */
-static float air_hold_s;
+static robot_airborne_t air;
 static float accel_mag_g;
-static int airborne;
 static float accel_x_last;
 static float accel_y_last;
 static float accel_z_last;
@@ -351,30 +345,12 @@ static void yaw_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd,
 
     /* Bias-free but slip-prone body yaw rate from the wheel differential. */
     const float wz = s->yaw_wheel_scale * (last_right_velocity - last_left_velocity);
-    yaw_wheel_rate = wz;
-
-    yaw_wheel += wz * loop_dt;
-    yaw_fused += gz * loop_dt;
-    yaw_fused += s->yaw_wheel_corr * (yaw_wheel - yaw_fused) * loop_dt;
-
-    YAW_angle = yaw_fused;
-    YAW_angle_total += yaw_fused - yaw_fused_last;
-    yaw_fused_last = yaw_fused;
-
-    /* The operator's yaw stick ramps the heading setpoint. */
-    YAW_angle_total += (float)cmd->joy_x * YAW_STICK_RATE_DPS * loop_dt;
-
-    /* Give-up: re-reference instead of winding back a heading the operator did
-     * not ask for (mirrors the distance loop's distance_zeropoint reset). Fire
-     * once the accumulated error is large, or as soon as the body is rotated
-     * hard (picked up / shoved), so the wheels do not fight a manual turn. */
-    if (cmd->joy_x == 0 &&
-        (fabsf(YAW_angle_total) > YAW_GIVEUP_DEG || fabsf(gz) > YAW_GIVEUP_RATE)) {
-        YAW_angle_total = 0.0f;
+    robot_yaw_step(&yaw, gz, wz, s->yaw_wheel_corr, cmd->joy_x, loop_dt);
+    if (yaw.gave_up) {
         pid_yaw_angle.reset();
     }
 
-    float yaw_angle_control = pid_yaw_angle(YAW_angle_total);
+    float yaw_angle_control = pid_yaw_angle(yaw.setpoint);
     float yaw_gyro_control = pid_yaw_gyro(gz);
     YAW_output = yaw_angle_control + yaw_gyro_control;
 }
@@ -399,8 +375,7 @@ static void lqr_balance_loop(const motor_feedback_t *left, const motor_feedback_
         /* Hold the heading at the moment GO is enabled: the yaw accumulator
          * keeps integrating while disarmed (a fall, the robot being carried),
          * and unwinding it makes the robot spin on start-up. */
-        YAW_angle_total = 0.0f;
-        yaw_fused_last = yaw_fused;
+        robot_yaw_hold(&yaw);
         arm_request = false;
     }
 
@@ -472,19 +447,8 @@ static void lqr_balance_loop(const motor_feedback_t *left, const motor_feedback_
     accel_x_last = imu->accel_x_g;
     accel_y_last = imu->accel_y_g;
     accel_z_last = imu->accel_z_g;
-    if (accel_mag_g < s->air_thresh_g) {
-        air_hold_s += loop_dt;
-        if (air_hold_s > AIR_HOLD_S) {
-            air_hold_s = AIR_HOLD_S;
-        }
-    } else {
-        air_hold_s -= loop_dt;
-        if (air_hold_s < 0.0f) {
-            air_hold_s = 0.0f;
-        }
-    }
-    airborne = (air_hold_s > 0.0f) ? 1 : 0;
-    if (airborne) {
+    robot_airborne_step(&air, accel_mag_g, s->air_thresh_g, loop_dt);
+    if (air.airborne) {
         LQR_u *= s->air_scale;
         pid_lqr_u.reset();
     }
@@ -494,16 +458,8 @@ static void lqr_balance_loop(const motor_feedback_t *left, const motor_feedback_
      * height slope does not have to be exact and the loop stops fighting. */
     if (s->zero_trim > 0.0f && cmd->go && fault_reason == FAULT_NONE &&
         fabsf((float)cmd->joy_x) < 5.0f && fabsf((float)cmd->joy_y) < 5.0f &&
-        fabsf(LQR_speed) < 3.0f && jump_flag == 0 && bump_flag == 0 && !airborne) {
-        const float err = LQR_angle - zero;
-        if (fabsf(err) < LEG_BALANCE_ZERO_TRIM_BAND) {   /* bigger = a push, not a bias */
-            zero_auto += s->zero_trim * err * loop_dt;
-            if (zero_auto > LEG_BALANCE_ZERO_TRIM_MAX) {
-                zero_auto = LEG_BALANCE_ZERO_TRIM_MAX;
-            } else if (zero_auto < -LEG_BALANCE_ZERO_TRIM_MAX) {
-                zero_auto = -LEG_BALANCE_ZERO_TRIM_MAX;
-            }
-        }
+        fabsf(LQR_speed) < 3.0f && jump_flag == 0 && bump_flag == 0 && !air.airborne) {
+        zero_auto = robot_zero_trim(zero_auto, LQR_angle - zero, s->zero_trim, loop_dt);
     }
 }
 
@@ -533,17 +489,17 @@ static void jump_loop(const robot_command_t *cmd, const robot_shared_t *s)
     }
     jump_elapsed_s += loop_dt;
 
-    const float slam_s = (float)(s->jump_crouch_ticks + 2) * 0.001f;
-    const float land_s = slam_s + (float)s->jump_land_ticks * 0.001f;
-    if (jump_flag == 1 && jump_elapsed_s >= slam_s) {
-        jump_legs_to(s->jump_height, s->jump_speed, s->jump_acc, s);
-        jump_flag = 2;
-    } else if (jump_flag == 2 && jump_elapsed_s >= land_s) {
-        jump_legs_to(s->jump_land_height, s->jump_speed, s->jump_acc, s);
-        jump_flag = 3;
-    } else if (jump_flag == 3 && jump_elapsed_s >= land_s + JUMP_SETTLE_S) {
-        jump_flag = 0;
+    const int next = robot_jump_phase(jump_flag, jump_elapsed_s,
+                                      s->jump_crouch_ticks, s->jump_land_ticks);
+    if (next == jump_flag) {
+        return;
     }
+    if (next == 2) {
+        jump_legs_to(s->jump_height, s->jump_speed, s->jump_acc, s);
+    } else if (next == 3) {
+        jump_legs_to(s->jump_land_height, s->jump_speed, s->jump_acc, s);
+    }
+    jump_flag = next;
 }
 
 /* Timed two-phase one-leg extension: extend for bump_ticks, then snap back to
@@ -556,12 +512,12 @@ static bool bump_loop(const mpu6050_sample_t *imu, const robot_shared_t *s)
         return false;
     }
     last_roll_angle = imu->angle_x;
-    const float extend_s = (float)s->bump_ticks * 0.001f;
-    if (bump_elapsed_s >= 2.0f * extend_s) {
+    const int phase = robot_bump_phase(bump_elapsed_s, s->bump_ticks);
+    if (phase == 0) {
         bump_flag = 0;
         return false;   /* pulse finished, resume normal control this tick */
     }
-    const bool extending = bump_elapsed_s < extend_s;
+    const bool extending = (phase == 1);
     bump_elapsed_s += loop_dt;
 
     int16_t position1, position2;
@@ -593,8 +549,7 @@ static void leg_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd,
         leg_position_add = 0.0f;
         /* Hold the heading the robot has right now instead of unwinding
          * whatever accumulated while it was disarmed or being carried. */
-        YAW_angle_total = 0.0f;
-        yaw_fused_last = yaw_fused;
+        robot_yaw_hold(&yaw);
         zero_auto = 0.0f;
     }
     if (zero_auto_reset) {
@@ -637,13 +592,8 @@ static void leg_loop(const mpu6050_sample_t *imu, const robot_command_t *cmd,
     }
 
     /* Slew the commanded height so a slider jump does not kick the chassis. */
-    float target_height = (float)cmd->height;
-    const float max_step = LEG_HEIGHT_SLEW_RATE * loop_dt;
-    if (target_height > leg_height_cmd) {
-        leg_height_cmd += fminf(max_step, target_height - leg_height_cmd);
-    } else {
-        leg_height_cmd -= fminf(max_step, leg_height_cmd - target_height);
-    }
+    leg_height_cmd = robot_slew(leg_height_cmd, (float)cmd->height,
+                                LEG_HEIGHT_SLEW_RATE * loop_dt);
 
     int16_t p1, p2;
     robot_leg_positions(leg_height_cmd, leg_position_add,
@@ -734,30 +684,25 @@ static void fault_recover(const robot_command_t *cmd, const mpu6050_sample_t *im
 {
     LQR_angle = imu->angle_y;
 
-    bool condition_ok = (fault_reason == FAULT_BATTERY)
-        ? (battery_voltage_throttled() > BOARD_BATTERY_RECOVER_VOLTAGE)
-        : (fabsf(LQR_angle) < ATTITUDE_RECOVER_DEG);
+    bool condition_ok = robot_fault_recover_condition(
+        fault_reason, LQR_angle, battery_voltage_throttled(),
+        BOARD_BATTERY_RECOVER_VOLTAGE);
+    const bool armed = cmd->go || go_auto_latch;
 
-    if (condition_ok && (cmd->go || go_auto_latch)) {
-        recover_s += loop_dt;
-        if (recover_s >= RECOVER_HOLD_S) {
-            recover_s = 0.0f;
-            reset_pids();
-            if (motor_foc_enable_torque() == ESP_OK) {
-                fault_reason = FAULT_NONE;
-                go_auto_latch = false;
-                if (!cmd->go) {
-                    robot_control_set_go(true);   /* resume the latched run */
-                }
-                robot_state_set(ROBOT_STATE_READY);
-                ESP_LOGI("robot_control", "recovered from fault%s",
-                         cmd->go ? "" : " (auto)");
-            } else {
-                robot_state_set(ROBOT_STATE_FAULT);
+    if (robot_hold_elapsed(&recover_s, condition_ok && armed, loop_dt, RECOVER_HOLD_S)) {
+        reset_pids();
+        if (motor_foc_enable_torque() == ESP_OK) {
+            fault_reason = FAULT_NONE;
+            go_auto_latch = false;
+            if (!cmd->go) {
+                robot_control_set_go(true);   /* resume the latched run */
             }
+            robot_state_set(ROBOT_STATE_READY);
+            ESP_LOGI("robot_control", "recovered from fault%s",
+                     cmd->go ? "" : " (auto)");
+        } else {
+            robot_state_set(ROBOT_STATE_FAULT);
         }
-    } else {
-        recover_s = 0.0f;
     }
 }
 
@@ -881,11 +826,11 @@ static void publish_telemetry(void)
     t.distance_term = distance_control;
     t.speed_term = speed_control;
     t.balance_zero = last_balance_zero;
-    t.yaw_total = YAW_angle_total;
+    t.yaw_total = yaw.setpoint;
     t.yaw_output = YAW_output;
-    t.yaw_fused = YAW_angle;
-    t.yaw_wheel_rate = yaw_wheel_rate;
-    t.yaw_wheel_heading = yaw_wheel;
+    t.yaw_fused = yaw.fused;
+    t.yaw_wheel_rate = yaw.wheel_rate;
+    t.yaw_wheel_heading = yaw.wheel;
     t.left_velocity = last_left_velocity;
     t.right_velocity = last_right_velocity;
     t.gyro_z = last_gyro_z;
@@ -897,7 +842,7 @@ static void publish_telemetry(void)
     t.accel_x = accel_x_last;
     t.accel_y = accel_y_last;
     t.accel_z = accel_z_last;
-    t.airborne = airborne;
+    t.airborne = air.airborne;
     t.fault_reason = (int)fault_reason;
     t.getup_state = getup_state_pub;
     t.bump_state = bump_flag ? bump_leg : 0;
@@ -1051,8 +996,8 @@ static void control_task(void *arg)
                 }
                 if (getup_state == 1) {
                     leg_loop(&imu, &cmd, &s);
-                    getup_s += loop_dt;
-                    if (getup_s >= GETUP_LOWER_S) {   /* let the legs reach the low pose */
+                    /* Let the legs reach the low pose before rocking. */
+                    if (robot_hold_elapsed(&getup_s, true, loop_dt, GETUP_LOWER_S)) {
                         float tg[2];
                         int du[2];
                         const float amp = s.getup_torque;
@@ -1087,7 +1032,7 @@ static void control_task(void *arg)
                 yaw_loop(&imu, &cmd, &s);
                 leg_loop(&imu, &cmd, &s);
 
-                if (fabsf(LQR_angle) > s.fault_deg) {
+                if (robot_attitude_faulted(LQR_angle, s.fault_deg)) {
                     enter_fault(FAULT_ATTITUDE, cmd.go);
                 } else if (cmd.go && battery_is_low()) {
                     enter_fault(FAULT_BATTERY, cmd.go);

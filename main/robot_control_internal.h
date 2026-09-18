@@ -14,6 +14,7 @@
 
 #include "robot_control.h"
 #include "robot_config.h"
+#include "robot_logic.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -68,31 +69,8 @@ typedef struct {
     bool wheel_seq_arm;
 } robot_shared_t;
 
-typedef struct {
-    float lqr_angle, lqr_u;
-    float angle_term, gyro_term, distance_term, speed_term;
-    float balance_zero;
-    float yaw_total, yaw_output, yaw_fused, yaw_wheel_rate, yaw_wheel_heading;
-    float left_velocity, right_velocity, gyro_z;
-    float leg_add, roll_angle;
-    float angle_pp;
-    float zero_auto;
-    float accel_mag, accel_x, accel_y, accel_z;
-    int airborne;
-    int fault_reason;
-    int getup_state;
-    int bump_state;        /* 0 idle, 1 left, 2 right */
-    int manual_legs;       /* 0/1 */
-    int manual_ms;
-    int jump_state;
-    int16_t leg_target1, leg_target2;
-} robot_telemetry_t;
-
-typedef enum {
-    FAULT_NONE = 0,
-    FAULT_ATTITUDE,
-    FAULT_BATTERY,
-} fault_reason_t;
+/* robot_telemetry_t is public (robot_telemetry.h) because /api/status reads a
+ * whole frame at once. */
 
 /* Discrete one-shot actions. Kept out of the shared snapshot so they are never
  * lost or applied twice. */

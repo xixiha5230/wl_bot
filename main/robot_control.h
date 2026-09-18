@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esp_err.h"
+#include "robot_telemetry.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -187,6 +188,9 @@ void robot_control_reset_zero_auto(void);
 float robot_control_get_balance_zero(void);
 /* Peak-to-peak of lqr_angle over the last ~1 s window (jitter metric). */
 float robot_control_angle_pp(void);
+
+/* Copy the whole telemetry snapshot in one lock, for a coherent status frame. */
+void robot_control_get_telemetry(robot_telemetry_t *out);
 
 float robot_control_lqr_angle(void);
 float robot_control_lqr_u(void);
