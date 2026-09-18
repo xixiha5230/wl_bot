@@ -175,6 +175,18 @@
 #define GYRO_TRIM_WINDOW_S   3.0f   /* max time the rest window keeps growing */
 #define GYRO_TRIM_TAU_S      1.0f   /* offset correction time constant */
 
+/*
+ * Yaw zero-rate trim while balancing. The disarmed trim above cannot run with
+ * go on, and the yaw loop holds the *measured* rate at zero, so a residual
+ * gyro-Z bias turns into a real slow rotation. While the wheels roll without
+ * slipping their differential is a bias-free rate reference, so walk the gyro
+ * offset toward it - only while both rates are small and no turn is commanded,
+ * because a forced/fast rotation makes the wheels slip (and then the wheel
+ * heading disagrees with the gyro).
+ */
+#define YAW_BIAS_TRIM_RATE   25.0f  /* max |rate| to trust the wheel reference (dps) */
+#define YAW_BIAS_TRIM_TAU_S  4.0f   /* offset correction time constant (s) */
+
 /* Fault handling. */
 #define ATTITUDE_FAULT_DEG   35.0f  /* pitch that latches an attitude fault */
 #define ATTITUDE_RECOVER_DEG 10.0f  /* pitch required to auto-recover */

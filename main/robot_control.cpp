@@ -1032,6 +1032,20 @@ static void control_task(void *arg)
                 yaw_loop(&imu, &cmd, &s);
                 leg_loop(&imu, &cmd, &s);
 
+                /* Trim the residual gyro-Z bias while balancing straight and
+                 * slow, using the wheel differential as a bias-free reference.
+                 * Without this the yaw loop holds the *measured* rate at zero
+                 * and the robot drifts at whatever bias is left. */
+                if (cmd.go && cmd.joy_x == 0 && s.yaw_mode != 0 &&
+                    jump_flag == 0 && bump_flag == 0 && !air.airborne &&
+                    wheel_seq_len == 0 && manual_s_left == 0.0f && getup_state == 0) {
+                    const float residual = robot_yaw_bias_residual(
+                        imu.gyro_z_dps, yaw.wheel_rate, YAW_BIAS_TRIM_RATE);
+                    if (residual != 0.0f) {
+                        sensors_trim_gyro_z(residual * loop_dt / YAW_BIAS_TRIM_TAU_S);
+                    }
+                }
+
                 if (robot_attitude_faulted(LQR_angle, s.fault_deg)) {
                     enter_fault(FAULT_ATTITUDE, cmd.go);
                 } else if (cmd.go && battery_is_low()) {

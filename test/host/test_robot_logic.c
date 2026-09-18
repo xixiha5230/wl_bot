@@ -79,6 +79,16 @@ static void test_yaw_hold(void)
     CHECK(y.fused_last == y.fused);
 }
 
+static void test_yaw_bias_residual(void)
+{
+    /* Within the trusted window the gyro/wheel difference is the residual. */
+    CHECK(robot_yaw_bias_residual(2.0f, 1.0f, 25.0f) == 1.0f);
+    CHECK(robot_yaw_bias_residual(0.0f, -1.0f, 25.0f) == 1.0f);
+    /* Outside it the wheel reference is not trusted (slip / real rotation). */
+    CHECK(robot_yaw_bias_residual(30.0f, 1.0f, 25.0f) == 0.0f);
+    CHECK(robot_yaw_bias_residual(1.0f, -30.0f, 25.0f) == 0.0f);
+}
+
 static void test_airborne(void)
 {
     robot_airborne_t a = {0};
@@ -160,6 +170,7 @@ int main(void)
     test_yaw_fusion();
     test_yaw_give_up();
     test_yaw_hold();
+    test_yaw_bias_residual();
     test_airborne();
     test_slew();
     test_jump_phase();

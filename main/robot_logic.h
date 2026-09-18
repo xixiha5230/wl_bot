@@ -72,6 +72,21 @@ static inline void robot_yaw_hold(robot_yaw_t *yaw)
 }
 
 /*
+ * Residual (deg/s) for the balancing gyro-Z trim, from the wheel-derived yaw
+ * rate. The gyro and the wheels measure the same body rate, so their difference
+ * is the residual zero-rate bias - but only while both are small: a fast or
+ * forced rotation makes the wheels slip, and then the reference is wrong.
+ * Returns 0 when either rate is outside the trusted window.
+ */
+static inline float robot_yaw_bias_residual(float gyro_z, float wheel_rate, float max_rate)
+{
+    if (fabsf(gyro_z) > max_rate || fabsf(wheel_rate) > max_rate) {
+        return 0.0f;
+    }
+    return gyro_z - wheel_rate;
+}
+
+/*
  * Airborne / drop detection: the accelerometer's specific-force magnitude drops
  * toward zero when both wheels leave the ground. The flag is held for AIR_HOLD_S
  * after the magnitude recovers, so a single noisy sample cannot toggle it.
