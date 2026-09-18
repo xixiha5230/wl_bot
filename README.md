@@ -1,9 +1,6 @@
 # Micro Wheeled-leg Robot — ESP-IDF Firmware
 
-> 复刻自 **https://github.com/MuShibo/Micro-Wheeled_leg-Robot**（原项目为 Arduino 固件）。
-
-用 ESP-IDF 原生复刻 MuShibo/Micro-Wheeled_leg-Robot 的固件，目标芯片为上游项目使用的
-经典 ESP32（ESP32-D0WDQ6，4 MB Flash）。参考实现为 Arduino 版 `wl_pro_robot.ino`。
+本项目是 [MuShibo/Micro-Wheeled_leg-Robot](https://github.com/MuShibo/Micro-Wheeled_leg-Robot) 的 ESP-IDF 复刻（上游为 Arduino 固件），目标芯片为上游项目使用的经典 ESP32（ESP32-D0WDQ6，4 MB Flash）。参考实现为 Arduino 版 `wl_pro_robot.ino`。
 
 ## 硬件与引脚
 
