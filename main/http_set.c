@@ -32,7 +32,7 @@ esp_err_t http_set_handler(httpd_req_t *request)
 {
     char query[320];
     if (httpd_req_get_url_query_str(request, query, sizeof(query)) != ESP_OK) {
-        httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "missing query");
+        httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "missing or oversized query");
         return ESP_OK;
     }
 

@@ -132,7 +132,7 @@ static void set_reset(const char *query, const char *value, char *applied, size_
 /* seq=<t:ms,t:ms,...>[&arm=1]: multi-phase wheel torque sequence. */
 static void set_seq(const char *query, const char *value, char *applied, size_t cap)
 {
-    char seq[160];
+    char seq[256];   /* matches the query value buffer, so no phase is dropped */
     snprintf(seq, sizeof(seq), "%s", value);
     float targets[8];
     int durs[8];
