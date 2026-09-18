@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "robot_math.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -48,24 +49,6 @@ static esp_err_t lock_bus(void)
 static void unlock_bus(void)
 {
     xSemaphoreGive(servo_mutex);
-}
-
-static uint8_t checksum(const uint8_t *data, size_t length)
-{
-    uint8_t sum = 0;
-    for (size_t i = 0; i < length; ++i) {
-        sum += data[i];
-    }
-    return (uint8_t)~sum;
-}
-
-static int16_t signed_word(uint8_t low, uint8_t high)
-{
-    uint16_t value = (uint16_t)low | ((uint16_t)high << 8);
-    if (value & 0x8000) {
-        return -(int16_t)(value & 0x7FFF);
-    }
-    return (int16_t)value;
 }
 
 static esp_err_t read_exact(uint8_t *buffer, size_t length)
@@ -118,7 +101,7 @@ static esp_err_t read_feedback_locked(uint8_t id, servo_sts_feedback_t *feedback
         STS_PRESENT_POSITION_L, 15,
         0,
     };
-    request[7] = checksum(&request[2], 5);
+    request[7] = robot_sts_checksum(&request[2], 5);
     uart_flush_input(BOARD_SERVO_UART_NUM);
     int written = uart_write_bytes(BOARD_SERVO_UART_NUM, request, sizeof(request));
     if (written != (int)sizeof(request)) {
@@ -135,7 +118,7 @@ static esp_err_t read_feedback_locked(uint8_t id, servo_sts_feedback_t *feedback
     if (response[0] != id || response[1] != 17) {
         return ESP_ERR_INVALID_RESPONSE;
     }
-    uint8_t expected = checksum(response, 18);
+    uint8_t expected = robot_sts_checksum(response, 18);
     if (expected != response[18]) {
         return ESP_ERR_INVALID_CRC;
     }
@@ -146,12 +129,12 @@ static esp_err_t read_feedback_locked(uint8_t id, servo_sts_feedback_t *feedback
     }
 
     feedback->status = 0;
-    feedback->position = signed_word(response[3], response[4]);
-    feedback->speed = signed_word(response[5], response[6]);
-    feedback->load = signed_word(response[7], response[8]);
+    feedback->position = robot_sts_decode_signed(response[3], response[4]);
+    feedback->speed = robot_sts_decode_signed(response[5], response[6]);
+    feedback->load = robot_sts_decode_signed(response[7], response[8]);
     feedback->voltage = response[9];
     feedback->temperature = response[10];
-    feedback->current = signed_word(response[16], response[17]);
+    feedback->current = robot_sts_decode_signed(response[16], response[17]);
     return ESP_OK;
 }
 
@@ -186,9 +169,7 @@ static esp_err_t sync_write_position_locked(const uint8_t *ids, const int16_t *p
 
     size_t offset = 7;
     for (size_t i = 0; i < count; ++i) {
-        uint16_t position = positions[i] < 0
-            ? (uint16_t)(-positions[i]) | 0x8000
-            : (uint16_t)positions[i];
+        uint16_t position = robot_sts_encode_signed(positions[i]);
         packet[offset++] = ids[i];
         packet[offset++] = acceleration;
         packet[offset++] = position & 0xFF;
@@ -198,7 +179,7 @@ static esp_err_t sync_write_position_locked(const uint8_t *ids, const int16_t *p
         packet[offset++] = speed & 0xFF;
         packet[offset++] = speed >> 8;
     }
-    packet[offset] = checksum(&packet[2], offset - 2);
+    packet[offset] = robot_sts_checksum(&packet[2], offset - 2);
 
     int written = uart_write_bytes(BOARD_SERVO_UART_NUM, packet, length);
     if (written != (int)length) {
@@ -229,7 +210,7 @@ static esp_err_t set_torque_locked(uint8_t id, bool enable)
         STS_TORQUE_ENABLE, enable ? 1 : 0,
         0,
     };
-    packet[7] = checksum(&packet[2], 5);
+    packet[7] = robot_sts_checksum(&packet[2], 5);
     int written = uart_write_bytes(BOARD_SERVO_UART_NUM, packet, sizeof(packet));
     if (written != (int)sizeof(packet)) {
         return ESP_FAIL;

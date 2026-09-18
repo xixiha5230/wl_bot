@@ -7,7 +7,7 @@
 #include "esp_wifi.h"
 #include "lwip/ip4_addr.h"
 #include "mdns.h"
-#include "nvs_flash.h"
+#include "nvs_store.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -62,19 +62,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     }
 }
 
-static esp_err_t init_nvs(void)
-{
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_RETURN_ON_ERROR(nvs_flash_erase(), TAG, "NVS erase failed");
-        err = nvs_flash_init();
-    }
-    return err;
-}
-
 esp_err_t wifi_net_start(void)
 {
-    ESP_RETURN_ON_ERROR(init_nvs(), TAG, "NVS init failed");
+    ESP_RETURN_ON_ERROR(nvs_store_init(), TAG, "NVS init failed");
     ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "netif init failed");
     ESP_RETURN_ON_ERROR(esp_event_loop_create_default(), TAG, "event loop failed");
 

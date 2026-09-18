@@ -1,13 +1,16 @@
 #pragma once
 
 #include "esp_err.h"
+#include "esp_http_server.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* WebSocket server for the web remote control, on port 81 (matches the page). */
-esp_err_t ws_server_start(void);
+/* Register the WebSocket control handler (/ws) on an already-running httpd
+ * (see http_server_start). The reference web page connects to
+ * ws://<host>/ws. */
+esp_err_t ws_server_start(httpd_handle_t server);
 
 #ifdef __cplusplus
 }

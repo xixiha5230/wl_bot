@@ -98,6 +98,10 @@ static void handle_basic_json(const char *text)
     cJSON_Delete(doc);
 }
 
+/* Control frames are a few hundred bytes; anything larger is not ours and is
+ * dropped before it is copied onto the stack. */
+#define WS_MAX_PAYLOAD 512
+
 static esp_err_t ws_handler(httpd_req_t *request)
 {
     if (request->method == HTTP_GET) {
@@ -112,42 +116,33 @@ static esp_err_t ws_handler(httpd_req_t *request)
     if (ret != ESP_OK || frame.len == 0) {
         return ret;
     }
-
-    char *payload = calloc(1, frame.len + 1);
-    if (payload == NULL) {
-        return ESP_ERR_NO_MEM;
+    if (frame.len > WS_MAX_PAYLOAD) {
+        ESP_LOGW(TAG, "frame too large (%u bytes), dropping", (unsigned)frame.len);
+        return ESP_ERR_INVALID_SIZE;
     }
-    frame.payload = (uint8_t *)payload;
 
+    char payload[WS_MAX_PAYLOAD + 1];
+    frame.payload = (uint8_t *)payload;
     ret = httpd_ws_recv_frame(request, &frame, frame.len);
     if (ret == ESP_OK && frame.type == HTTPD_WS_TYPE_TEXT) {
+        payload[frame.len] = '\0';
         handle_basic_json(payload);
     }
-
-    free(payload);
     return ret;
 }
 
-esp_err_t ws_server_start(void)
+esp_err_t ws_server_start(httpd_handle_t server)
 {
-    httpd_handle_t server = NULL;
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.server_port = 81;
-    /* Keep the WebSocket server off the real-time control core. */
-    config.core_id = 0;
-    /* The control port must differ from the HTTP server's default 32768. */
-    config.ctrl_port = 32769;
-    config.max_open_sockets = 4;
-
+    if (server == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
     httpd_uri_t ws = {
-        .uri = "/",
+        .uri = "/ws",
         .method = HTTP_GET,
         .handler = ws_handler,
         .is_websocket = true,
     };
-
-    ESP_RETURN_ON_ERROR(httpd_start(&server, &config), TAG, "WS server start failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &ws), TAG, "WS handler failed");
-    ESP_LOGI(TAG, "WebSocket server listening on port %d", config.server_port);
+    ESP_LOGI(TAG, "WebSocket control endpoint registered at /ws");
     return ESP_OK;
 }

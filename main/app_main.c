@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "http_server.h"
 #include "motor_foc.h"
+#include "nvs_store.h"
 #include "robot_control.h"
 #include "robot_state.h"
 #include "sensors.h"
@@ -60,6 +61,7 @@ static void battery_task(void *arg)
 void app_main(void)
 {
     robot_state_init();
+    ESP_ERROR_CHECK(nvs_store_init());
     ESP_ERROR_CHECK(board_init());
     ESP_ERROR_CHECK(servo_sts_init());
 
@@ -100,8 +102,9 @@ void app_main(void)
     xTaskCreatePinnedToCore(servo_task, "servo_task", 4096, NULL, 3, NULL, APP_TASK_CORE);
     xTaskCreatePinnedToCore(battery_task, "battery_task", 3072, NULL, 2, NULL, APP_TASK_CORE);
     ESP_ERROR_CHECK(wifi_net_start());
-    ESP_ERROR_CHECK(http_server_start());
-    ESP_ERROR_CHECK(ws_server_start());
+    httpd_handle_t server = NULL;
+    ESP_ERROR_CHECK(http_server_start(&server));
+    ESP_ERROR_CHECK(ws_server_start(server));
 
     ESP_LOGI(TAG, "WLROBOT ESP-IDF firmware started");
     ESP_ERROR_CHECK(console_start());

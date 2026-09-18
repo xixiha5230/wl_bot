@@ -63,12 +63,15 @@
 #define LEG_MOVE_ACC             8
 #define LEG_JUMP_SPEED           0
 #define LEG_JUMP_ACC             0
-#define LEG_JUMP_HEIGHT          80
+/* Jump profile defaults, in the same [LEG_HEIGHT_MIN, LEG_HEIGHT_MAX] domain as
+ * every other height so the launch never pins the leg on its travel stop. */
+#define LEG_JUMP_HEIGHT          LEG_HEIGHT_MAX
 #define LEG_JUMP_LAND_HEIGHT     40
 
-/* Max leg-height change per control loop (~500 Hz). Softens a slider jump so the
- * leg motion does not kick the chassis hard enough to lose balance. */
-#define LEG_HEIGHT_SLEW          0.05f
+/* Max leg-height change per second. Softens a slider jump so the leg motion
+ * does not kick the chassis hard enough to lose balance. Scaled by the measured
+ * control-loop period, so it is independent of the actual loop rate. */
+#define LEG_HEIGHT_SLEW_RATE     50.0f
 
 /* One-shot leg bump ("iron mountain lean" / 抖肩): quickly extend one leg then
  * hand back to the normal height loop. amp = extension in servo counts,
@@ -89,9 +92,6 @@
  */
 #define LEG_BALANCE_ZERO_DEFAULT 4.40f
 #define LEG_BALANCE_ZERO_SLOPE   0.075f
-/* The slow zero adaptation never moves more than this many degrees from the
- * configured base (safety against wind-up while the robot is held/pushed). */
-#define LEG_BALANCE_ZERO_ADAPT   1.00f
 
 /*
  * Self-calibrating balance zero. The hard-coded height slope above is only a
@@ -103,6 +103,10 @@
  */
 #define LEG_BALANCE_ZERO_TRIM_RATE 0.3f
 #define LEG_BALANCE_ZERO_TRIM_MAX  12.0f
+/* Only self-calibrate while the pitch error is small (a bigger error is a
+ * push/fall, not a bias) and the robot is nearly stationary. */
+#define LEG_BALANCE_ZERO_TRIM_BAND  8.0f
+#define LEG_BALANCE_ZERO_TRIM_SPEED 3.0f
 
 /*
  * Yaw heading. The gyro is fast and, once calibrated, drift-free enough; the
@@ -122,3 +126,70 @@
  * the body is being rotated faster than this (picked up / shoved). */
 #define YAW_GIVEUP_DEG     35.0f
 #define YAW_GIVEUP_RATE    90.0f
+/* Heading setpoint change per joystick unit per second (deg/s per unit). */
+#define YAW_STICK_RATE_DPS 2.0f
+
+/*
+ * Control-loop timing. The nominal period is only used until the first
+ * measurement; the control task then times every iteration and every rate /
+ * integrator below is scaled by that measured dt.
+ */
+#define CONTROL_DT_DEFAULT       0.001f
+#define LQR_ANGLE_PP_WINDOW_S    0.5f   /* jitter metric window (s) */
+
+/*
+ * Wheel-odometry trust thresholds (wheel-shaft deg/s). The distance loop
+ * integrates the wheel angle, so it is only a valid position reference while
+ * the robot rolls on the ground without slipping.
+ */
+#define LQR_ODOMETRY_STOP_SPEED  0.5f
+#define LQR_ODOMETRY_FAST_SPEED  15.0f
+#define LQR_ODOMETRY_SLIP_SPEED  50.0f
+#define LQR_ODOMETRY_SLIP_STEP   10.0f
+/* Joystick -> wheel speed setpoint gain (deg/s per unit). */
+#define LQR_SPEED_JOY_GAIN       0.1f
+/* Only trim the LQR_u bias while the output and the distance term are small
+ * and the operator is not driving. */
+#define LQR_U_TRIM_BAND          5.0f
+#define LQR_U_DISTANCE_BAND      4.0f
+/* Initial distance reference; any real wheel position replaces it on arm. */
+#define LQR_DISTANCE_SENTINEL    (-256.0f)
+
+/*
+ * Airborne / drop detection. While the wheels are off the ground the balance
+ * loop's drive just spins them up, and the leftover wheel speed makes the
+ * robot lunge forward on landing. Below AIR_THRESH_G of specific force it is
+ * treated as airborne and the output is scaled by AIR_SCALE.
+ */
+#define AIR_THRESH_G       0.60f
+#define AIR_SCALE          0.25f
+#define AIR_HOLD_S         0.02f   /* debounce before trusting the flag (s) */
+
+/*
+ * Gyro Z auto-trim while disarmed and at rest. The window must exceed a
+ * plausible bad boot offset (MPU6050 ZRO is +/-20 dps) or the trim can never
+ * reach it; real rotations are far larger and excluded.
+ */
+#define GYRO_TRIM_WINDOW_DPS 60.0f
+#define GYRO_TRIM_REST_S     0.5f   /* at rest before trusting the reading */
+#define GYRO_TRIM_WINDOW_S   3.0f   /* max time the rest window keeps growing */
+#define GYRO_TRIM_TAU_S      1.0f   /* offset correction time constant */
+
+/* Fault handling. */
+#define ATTITUDE_FAULT_DEG   35.0f  /* pitch that latches an attitude fault */
+#define ATTITUDE_RECOVER_DEG 10.0f  /* pitch required to auto-recover */
+#define RECOVER_HOLD_S       0.2f   /* condition must hold this long (s) */
+#define BATTERY_SAMPLE_S     0.05f  /* ADC sample period (s) */
+#define BATTERY_LOW_HOLD_S   2.0f   /* reading must stay low this long (s) */
+#define BATTERY_MIN_PLAUSIBLE 4.0f  /* below this the sense wiring is broken */
+
+/* Self-right (get-up). */
+#define GETUP_LOW_HEIGHT     35     /* legs lowered before the rock */
+#define GETUP_LOWER_S        0.7f   /* time allowed for the legs to get there */
+#define GETUP_ROCK_BACK_MS   120    /* rock phase durations (ms) */
+#define GETUP_ROCK_FWD_MS    200
+#define GETUP_TORQUE         12.0f  /* rock wheel magnitude */
+#define GETUP_RELEASE_DEG    20.0f  /* hand over to balance below this pitch */
+
+/* Time after the jump landing command before the gait hands back (s). */
+#define JUMP_SETTLE_S        0.16f

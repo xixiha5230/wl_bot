@@ -30,10 +30,12 @@ typedef struct {
     float angle_acc_y;
     float angle_x;
     float angle_y;
-    float angle_z;
 } mpu6050_sample_t;
 
 esp_err_t sensors_init(void);
+/* Read both AS5600 encoders plus their continuous angle and velocity. This is a
+ * diagnostics path (the console 'enc' command): the control loop uses the
+ * SimpleFOC shaft angle/velocity for the balance and roll loops. */
 esp_err_t sensors_read_encoders(as5600_sample_t *left, as5600_sample_t *right);
 esp_err_t sensors_read_imu(mpu6050_sample_t *imu);
 

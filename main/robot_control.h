@@ -97,15 +97,13 @@ int robot_control_bump_state(void);
  * integrators so the legs snap back to their symmetric pose. */
 void robot_control_reset_attitude(void);
 
-/* Research: drive both wheels at `target` (LQR_u units, clamped to +/-12) for
+/* Research: drive both wheels at `target` (LQR_u units, clamped to +/-30) for
  * `ms` milliseconds, bypassing balance and fault handling. */
 void robot_control_manual_drive(float target, int ms);
-bool robot_control_manual_active(void);
-int robot_control_manual_ticks(void);
+int robot_control_manual_remaining_ms(void);
 
 /* Multi-phase wheel sequence (target in LQR_u units, duration in ms). */
 void robot_control_wheel_sequence(const float *targets, const int *durations_ms, int count);
-int robot_control_wheel_seq_len(void);
 /* When armed, a running sequence hands over to the balance loop as soon as
  * the pitch comes within the get-up release angle. */
 void robot_control_wheel_sequence_arm(bool arm);
@@ -129,13 +127,13 @@ int robot_control_fault_reason(void);
 float robot_control_calibrate_level(void);
 
 /* Jump profile, tunable at runtime (defaults from LEG_JUMP_* in robot_config.h):
- *   height/land_height in mm, speed 0..2000 (0 = max), acc 0..100,
- *   land_ticks = control ticks (~1/500 s) after launch before the land command. */
+ *   height/land_height in the leg-height domain, speed 0..2000 (0 = max),
+ *   acc 0..100, land_ms = time after launch before the land command (ms). */
 void robot_control_set_jump_profile(int height, int land_height, int speed,
                                     int acc, int land_ticks);
 void robot_control_get_jump_profile(int *height, int *land_height, int *speed,
                                     int *acc, int *land_ticks);
-/* Crouch phase of the jump gait: height and hold time in control ticks. */
+/* Crouch phase of the jump gait: height and hold time (ms). */
 void robot_control_set_jump_crouch(int height, int ticks);
 void robot_control_get_jump_crouch(int *height, int *ticks);
 /* Diagnostic: last leg positions sent to servos, and jump state (0/idle). */
@@ -143,7 +141,7 @@ void robot_control_get_leg_diag(int16_t *target1, int16_t *target2, int *jump_st
 
 /* Runtime tuning, mirroring the reference firmware's SimpleFOC Commander.
  * Names match the original A-L mappings (angle, gyro, distance, speed,
- * yaw_angle, yaw_gyro, lqr_u, zeropoint, roll_angle, joyy, zeropoint_lpf, roll). */
+ * yaw_angle, yaw_gyro, lqr_u, roll_angle). */
 typedef enum {
     ROBOT_PID_ANGLE = 0,
     ROBOT_PID_GYRO,
@@ -152,7 +150,6 @@ typedef enum {
     ROBOT_PID_YAW_ANGLE,
     ROBOT_PID_YAW_GYRO,
     ROBOT_PID_LQR_U,
-    ROBOT_PID_ZEROPOINT,
     ROBOT_PID_ROLL_ANGLE,
     ROBOT_PID_COUNT,
 } robot_pid_t;
@@ -163,16 +160,25 @@ void robot_control_get_pid(int which, float *p, float *i, float *d, float *limit
 /* Pass a negative value to leave I/D/limit unchanged. */
 void robot_control_set_pid(int which, float p, float i, float d, float limit);
 
-/* Low-pass filters: 0 = joyy, 1 = zeropoint, 2 = roll. */
+typedef enum {
+    ROBOT_LPF_JOY_Y = 0,
+    ROBOT_LPF_ROLL,
+    ROBOT_LPF_COUNT,
+} robot_lpf_t;
+
+int robot_control_lpf_count(void);
+const char *robot_control_lpf_name(int which);
 void robot_control_get_lpf(int which, float *tf);
 void robot_control_set_lpf(int which, float tf);
 
-/* Balance zero point in degrees (the original 'I'/'angle_zeropoint'). */
+/* Balance zero point in degrees: the base of the height-dependent model. */
 void robot_control_set_angle_zeropoint(float degrees);
 float robot_control_get_angle_zeropoint(void);
 /* Self-calibrating balance zero: while balancing straight and slow, walk the
  * effective zero toward the pitch the robot actually rests at. [rate] in deg/s,
- * <=0 disables; the learned offset is bounded by LEG_BALANCE_ZERO_TRIM_MAX. */
+ * <=0 disables; the learned offset is bounded by LEG_BALANCE_ZERO_TRIM_MAX.
+ * This is the only balance-zero adaptation: the old 'zeropoint' PID was a
+ * second, overlapping loop and has been removed. */
 void robot_control_set_zero_trim(float rate);
 float robot_control_get_zero_trim(void);
 float robot_control_get_zero_auto(void);
